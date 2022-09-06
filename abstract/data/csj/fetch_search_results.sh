@@ -1,0 +1,1 @@
+wget --wait=3 -i /data_tmp/abstract/csj/search_urls.txt --directory-prefix /data_tmp/abstract/csj/search_results

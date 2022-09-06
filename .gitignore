@@ -1,0 +1,7 @@
+wandb
+paragraphs2actions
+__pycache__
+logs
+*.egg-info
+.lock
+errors

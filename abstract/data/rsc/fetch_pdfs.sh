@@ -1,0 +1,1 @@
+wget -i /data_tmp/abstract/rsc/urls.txt --directory-prefix /data_tmp/abstract/rsc/pdf

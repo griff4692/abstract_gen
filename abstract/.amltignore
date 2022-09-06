@@ -1,0 +1,6 @@
+wandb
+*.tar.gz
+*.en
+*.fr
+*.log
+*.html

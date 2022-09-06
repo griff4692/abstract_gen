@@ -1,0 +1,1 @@
+wget -i /data_tmp/abstract/beilstein/search_urls.txt --directory-prefix /data_tmp/abstract/beilstein/search_results
