@@ -1,6 +1,7 @@
 import itertools
 import regex as re
 import os
+from time import sleep
 CWD = os.path.dirname(__file__)
 
 import openai
@@ -35,7 +36,6 @@ def is_incomplete(record, out_dir):
     uuid_clean = clean_uuid(uuid)
     out_fn = os.path.join(out_dir, f'{uuid_clean}.csv')
     return not os.path.exists(out_fn)
-
 
 def paraphrase_with_gpt(args, record, annotated_abstracts):
     few_shot_examples = list(itertools.combinations(list(range(len(annotated_abstracts))), args.few_shot_n))
@@ -94,8 +94,13 @@ if __name__ == '__main__':
                 uuid = record['uuid']
                 uuid_clean = clean_uuid(uuid)
                 out_fn = os.path.join(out_dir, f'{uuid_clean}.csv')
+                try:
+                    paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples)
+                except openai.error.RateLimitError:
+                    print('Rate limit exceeded. Sleeping for a minute and re-trying.')
+                    sleep(60)
+                    paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples)
 
-                paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples)
                 output_df = pd.DataFrame([
                     {'uuid': record['uuid'], 'abstract': record['abstract'], 'prediction': p, 'paraphrase_idx': i}
                     for i, p in enumerate(paraphrases)
