@@ -37,6 +37,7 @@ def is_incomplete(record, out_dir):
     out_fn = os.path.join(out_dir, f'{uuid_clean}.csv')
     return not os.path.exists(out_fn)
 
+
 def paraphrase_with_gpt(args, record, annotated_abstracts):
     few_shot_examples = list(itertools.combinations(list(range(len(annotated_abstracts))), args.few_shot_n))
     sampled_example_set = [annotated_abstracts[i] for i in few_shot_examples[choice(range(len(few_shot_examples)))]]
@@ -100,6 +101,10 @@ if __name__ == '__main__':
                     print('Rate limit exceeded. Sleeping for a minute and re-trying.')
                     sleep(60)
                     paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples)
+                except openai.error.InvalidRequestError as e:
+                    print(e)
+                    print('Skipping for now.')
+                    continue
 
                 output_df = pd.DataFrame([
                     {'uuid': record['uuid'], 'abstract': record['abstract'], 'prediction': p, 'paraphrase_idx': i}
