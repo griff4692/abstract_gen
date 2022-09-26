@@ -5,6 +5,7 @@ import numpy as np
 import pandas as pd
 
 from abstract.preprocess.preprocess import data_loader
+from abstract.corruptions.entity.bern_entities import clean_uuid
 
 
 DATA_DIR = os.path.expanduser('~/data_tmp')
@@ -13,7 +14,7 @@ DATA_DIR = os.path.expanduser('~/data_tmp')
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Record the UUIDs used for the contrastive learning training subset')
 
-    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--dataset', default='chemistry', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('--max_train_examples', default=50000, type=int)
 
     args = parser.parse_args()
@@ -25,6 +26,21 @@ if __name__ == '__main__':
     train_uuids = dataset['train']['uuid']
     val_uuids = dataset['validation']['uuid']
     test_uuids = dataset['test']['uuid']
+
+    if args.dataset == 'chemistry':
+        # Only the ones for which we have returned BERN entites
+        names = open(os.path.expanduser('~/tmp.txt'), 'r').readlines()
+        clean_uuids = []
+        for line in names:
+            line = line.strip()
+            if len(line) == 0:
+                continue
+            clean_uuids.append(line.split(' ')[1].replace('.csv;', ''))
+        clean_uuids = set(clean_uuids)
+        prev_n = len(train_uuids)
+        train_uuids = [x for x in train_uuids if clean_uuid(x) in clean_uuids]
+        n = len(train_uuids)
+        print(f'{n}/{prev_n} processed by BERN2')
 
     keep_train_uuids = train_uuids
     if args.max_train_examples < len(train_uuids):

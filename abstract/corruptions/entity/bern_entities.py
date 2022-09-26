@@ -89,7 +89,6 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp/abstract'))
     parser.add_argument('-overwrite', default=False, action='store_true')
     parser.add_argument('--num_cpus', default=1, type=int)
-    parser.add_argument('-reverse_order', default=False, action='store_true')
 
     args = parser.parse_args()
 
@@ -107,9 +106,6 @@ if __name__ == '__main__':
             data = list(filter(lambda x: is_incomplete(x, out_dir), data))
         n = len(data)
         print(f'Processing {n}/{prev_n} incomplete records')
-        if args.reverse_order:
-            print('Starting from the end of the data (to speed it up in tandem with regular order)...')
-            data = data[::-1]
         if args.num_cpus > 1:
             statuses = list(p_uimap(lambda record: process(record, out_dir), data, num_cpus=args.num_cpus))
         else:

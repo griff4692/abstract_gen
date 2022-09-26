@@ -29,7 +29,7 @@ def load_chemistry(contrast_subsample=False):
 
         train_df = pd.DataFrame(splits['train'])
         if contrast_subsample:
-            uuid_fn = os.path.join(DATA_DIR, 'chemical', 'contrast_uuids.csv')
+            uuid_fn = os.path.join(DATA_DIR, 'chemistry', 'contrast_uuids.csv')
             uuids = pd.read_csv(uuid_fn)
             uuids_to_keep = set(uuids[uuids['split'] == 'train']['uuid'])
             train_df = train_df[train_df['uuid'].isin(uuids_to_keep)]

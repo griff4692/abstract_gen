@@ -21,3 +21,6 @@ stemming
 quantulum3
 deepspeed
 openai
+dill
+scispacy
+ujson

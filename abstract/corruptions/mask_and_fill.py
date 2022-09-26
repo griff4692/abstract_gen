@@ -24,12 +24,12 @@ def clean_uuid(uuid):
 
 HF_MODEL = 'razent/SciFive-base-Pubmed_PMC'
 # https://www.dampfkraft.com/penn-treebank-tags.html
-KEEP_TAGS = ['NP']
+# KEEP_TAGS = ['NP']
 DATA_DIR = os.path.expanduser('~/data_tmp')
 
 
 class MaskFiller:
-    def __init__(self, device='cuda:1', num_beams=4) -> None:
+    def __init__(self, device='cuda:0', num_beams=4) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(HF_MODEL)
         self.model = AutoModelForSeq2SeqLM.from_pretrained(HF_MODEL).to(device).eval()
         self.device = device
@@ -72,40 +72,40 @@ class MaskFiller:
         self.model.cpu()
 
 
-def extract(tree, target_level, level):
-    if target_level != level:
-        return []
-    if tree.label in KEEP_TAGS:
-        return [tree.leaf_labels()]
-
-
-def get_spans(text, stanza_nlp):
-    abstract = stanza_nlp(text)
-    all_spans = []
-
-    def add_span(tree):
-        if tree.label in KEEP_TAGS:
-            all_spans.append({'label': tree.label, 'tokens': tree.leaf_labels()})
-
-    for sentence in abstract.sentences:
-        tree = sentence.constituency
-        try:
-            tree.visit_preorder(internal=add_span, preterminal=add_span, leaf=add_span)
-        except ValueError as e:
-            print(f'Caught following error from Stanza: {e}')
-
-    valid_spans = []
-    for span in all_spans:
-        pattern = r'\s*'.join([re.escape(token) for token in span['tokens']])
-        match = re.search(pattern, text)
-
-        if match is not None:
-            valid_spans.append(span)
-    
-    for span in valid_spans:
-        span['tokens'] = ' '.join(span['tokens'])
-
-    return pd.DataFrame(valid_spans)
+# def extract(tree, target_level, level):
+#     if target_level != level:
+#         return []
+#     if tree.label in KEEP_TAGS:
+#         return [tree.leaf_labels()]
+#
+#
+# def get_spans(text, stanza_nlp):
+#     abstract = stanza_nlp(text)
+#     all_spans = []
+#
+#     def add_span(tree):
+#         if tree.label in KEEP_TAGS:
+#             all_spans.append({'label': tree.label, 'tokens': tree.leaf_labels()})
+#
+#     for sentence in abstract.sentences:
+#         tree = sentence.constituency
+#         try:
+#             tree.visit_preorder(internal=add_span, preterminal=add_span, leaf=add_span)
+#         except ValueError as e:
+#             print(f'Caught following error from Stanza: {e}')
+#
+#     valid_spans = []
+#     for span in all_spans:
+#         pattern = r'\s*'.join([re.escape(token) for token in span['tokens']])
+#         match = re.search(pattern, text)
+#
+#         if match is not None:
+#             valid_spans.append(span)
+#
+#     for span in valid_spans:
+#         span['tokens'] = ' '.join(span['tokens'])
+#
+#     return pd.DataFrame(valid_spans)
 
 
 def implement_mask(abstract, noun_chunks_to_mask):
@@ -167,10 +167,10 @@ def build_masks(record, mask_rates, nlp, max_masks=20):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to Extract, Mask, and Fill Syntactic Spans from References')
-    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--dataset', default='chemistry', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument(
-        '--mode', default='fill_spans',
-        choices=['extract_spans', 'mask_spans', 'fill_spans', 'merge_chunks']
+        '--mode', default='mask_spans',
+        choices=['mask_spans', 'fill_spans', 'merge_chunks']
     )
     # Extract Span Arguments
     parser.add_argument('-overwrite', default=False, action='store_true')
@@ -187,9 +187,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     datasets = data_loader(args.dataset, contrast_subsample=True)
-    # span_dir = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill', 'spans')
-    # os.makedirs(span_dir, exist_ok=True)
-    # span_dir = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill')
+    mask_and_fill_dir = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill')
+    os.makedirs(mask_and_fill_dir, exist_ok=True)
 
     # if args.mode in {'extract_spans', 'all'}:
     #     stanza_nlp = stanza.Pipeline(lang='en', processors='tokenize,pos,constituency')
@@ -229,7 +228,7 @@ if __name__ == '__main__':
         outputs = [x for x in outputs if x is not None]
         outputs = list(itertools.chain(*outputs))
         outputs = pd.DataFrame(outputs)
-        out_fn = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill', 'span_masks.csv')
+        out_fn = os.path.join(mask_and_fill_dir, 'span_masks.csv')
         print(f'Saving {len(outputs)} masked inputs to {out_fn}')
         outputs.to_csv(out_fn, index=False)
 
@@ -240,7 +239,7 @@ if __name__ == '__main__':
             print(f'Mask Rate {mask_rate}: Remove Tokens={removed_tokens}, Number of Masks={num_masks}')
     if args.mode in {'fill_spans', 'all'}:
         mask_filler = MaskFiller(num_beams=args.num_beams)
-        in_fn = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill', 'span_masks.csv')
+        in_fn = os.path.join(mask_and_fill_dir, 'span_masks.csv')
         print(f'Reading in masked abstracts from {in_fn}')
         df = pd.read_csv(in_fn)
         df['target_length'] = df['removed_tokens'] + df['num_masks']
@@ -288,13 +287,13 @@ if __name__ == '__main__':
             out_dir = os.environ['AMLT_OUTPUT_DIR']
             os.makedirs(out_dir, exist_ok=True)
         else:
-            out_dir = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill')
+            out_dir = mask_and_fill_dir
         out_fn = os.path.join(out_dir, f'span_fills{chunk_suffix}.csv')
         print(f'Saving {len(augmented_df)} filled in examples to {out_fn}')
         augmented_df.to_csv(out_fn, index=False)
         mask_filler.cleanup()
     if args.mode in {'merge_chunks', 'all'}:
-        chunk_fns = list(glob(os.path.join(args.data_dir, 'mask_and_fill', f'span_fills_*.csv')))
+        chunk_fns = list(glob(os.path.join(mask_and_fill_dir, f'span_fills_*.csv')))
         chunk_fns = [x for x in chunk_fns if any(chr.isdigit() for chr in x)]
 
         output_df = []
@@ -304,7 +303,7 @@ if __name__ == '__main__':
             output_df.append(chunk_df)
 
         output_df = pd.concat(output_df)
-        out_fn = os.path.join(args.data_dir, 'mask_and_fill', 'span_fills.csv')
+        out_fn = os.path.join(mask_and_fill_dir, 'span_fills.csv')
         print(f'Saving {output_df} outputs to {out_fn}')
         # Ensure no duplicates
         uuid = output_df['uuid'] + output_df['target_mask_rate'].astype(str) + output_df['sample_idx'].astype(str)

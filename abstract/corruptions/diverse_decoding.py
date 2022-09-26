@@ -41,6 +41,9 @@ import torch
 from torch.utils.data import DataLoader
 
 
+from abstract.preprocess.preprocess import data_loader
+
+
 # from abstract.model.utils import add_global_attention_mask
 def add_global_attention_mask(batch):
     global_attention_mask = torch.zeros_like(batch['input_ids']).to(batch['input_ids'].device)
@@ -113,7 +116,7 @@ def generate(args, experiment_dir, output_dir, verbose=True):
     model.resize_token_embeddings(len(tokenizer))
 
     print(f'Loading custom dataset from {data_path}')
-    train_dataset = load_from_disk(data_path)[args.split]
+    train_dataset = data_loader(args.dataset, contrast_subsample=True)[args.split]
 
     if len(train_dataset) > args.max_examples:
         np.random.seed(1992)
@@ -150,7 +153,11 @@ def generate(args, experiment_dir, output_dir, verbose=True):
     )
 
     dataloader = DataLoader(
-        train_subset.remove_columns(important_cols), shuffle=False, batch_size=args.batch_size, collate_fn=data_collator
+        train_subset.remove_columns(important_cols),
+        shuffle=False,
+        batch_size=args.batch_size,
+        collate_fn=data_collator,
+        num_workers=8
     )
 
     # Metric
@@ -247,7 +254,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--hf_model', default='primera', choices=['primera', 't5'])
     parser.add_argument('--experiment', default='primera')  # WandB name
-    parser.add_argument('--num_candidates', default=5, type=int)
+    parser.add_argument('--num_candidates', default=10, type=int)
     parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--device', default=0, type=int)
     parser.add_argument('--chunk_idx', default=0, type=int)
