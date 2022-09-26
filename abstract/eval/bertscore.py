@@ -1,6 +1,5 @@
 from evaluate import load
 from nltk import sent_tokenize
-from p_tqdm import p_uimap
 from tqdm import tqdm
 from collections import defaultdict
 

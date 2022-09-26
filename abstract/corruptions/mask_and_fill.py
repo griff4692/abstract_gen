@@ -1,10 +1,10 @@
 from p_tqdm import p_uimap
-import ujson
 import itertools
 from glob import glob
+import math
 
 from transformers import AutoTokenizer, AutoModelForSeq2SeqLM
-import stanza
+import spacy
 import regex as re
 import argparse
 import os
@@ -12,6 +12,9 @@ import pandas as pd
 import torch
 from tqdm import tqdm
 import numpy as np
+
+from abstract.preprocess.preprocess import data_loader
+
 
 # from abstract.corruptions.entity.bern_entities import clean_uuid
 def clean_uuid(uuid):
@@ -21,11 +24,12 @@ def clean_uuid(uuid):
 
 HF_MODEL = 'razent/SciFive-base-Pubmed_PMC'
 # https://www.dampfkraft.com/penn-treebank-tags.html
-KEEP_TAGS = ['NP', 'PP', 'VP']
+KEEP_TAGS = ['NP']
+DATA_DIR = os.path.expanduser('~/data_tmp')
 
 
 class MaskFiller:
-    def __init__(self, device='cuda:0', num_beams=4) -> None:
+    def __init__(self, device='cuda:1', num_beams=4) -> None:
         self.tokenizer = AutoTokenizer.from_pretrained(HF_MODEL)
         self.model = AutoModelForSeq2SeqLM.from_pretrained(HF_MODEL).to(device).eval()
         self.device = device
@@ -36,9 +40,15 @@ class MaskFiller:
     def fill(self, texts, target_length):
         encoding = self.tokenizer(texts, padding=True, truncation=True, max_length=self.max_length, return_tensors='pt')
         input_ids, attention_mask = encoding['input_ids'].to(self.device), encoding['attention_mask'].to(self.device)
-        kwargs = {'num_beams': self.num_beams, 'min_length': min(self.max_length, target_length + 3), 'max_length': self.max_length}
+        kwargs = {
+            'num_beams': self.num_beams,
+            'min_length': min(self.max_length, target_length + 3),
+            'max_length': self.max_length
+        }
         with torch.no_grad():
-            preds = self.model.generate(input_ids=input_ids, attention_mask=attention_mask, early_stopping=True, **kwargs)
+            preds = self.model.generate(
+                input_ids=input_ids, attention_mask=attention_mask, early_stopping=True, **kwargs
+            )
         decoded = self.tokenizer.batch_decode(preds)
         batch_filled = []
         for text, pred in zip(texts, decoded):
@@ -98,123 +108,128 @@ def get_spans(text, stanza_nlp):
     return pd.DataFrame(valid_spans)
 
 
-def sample_mask(abstract, span_df, target_mask_rate, max_masks=20):
+def implement_mask(abstract, noun_chunks_to_mask):
     masked_abstract = abstract
-    abstract_toks = len(abstract.split(' '))
-    tokens_to_mask = int(round(target_mask_rate * abstract_toks))
-    span_df.dropna(inplace=True)
-    n = len(span_df)
-    priority = np.arange(n)
-    np.random.shuffle(priority)
-    tokens_masked = 0
-    mask_ct = 0
-    placeholder_mask = '<mask>'
-    for idx in priority:
-        span_row = span_df.iloc[idx]
-        pattern = r'\s*'.join([re.escape(token) for token in span_row['tokens'].split(' ')])
-        num_tokens_in_span = len(span_row['tokens'].split(' '))
-        matches = list(re.finditer(pattern, masked_abstract))
-        np.random.shuffle(matches)
-        if len(matches) > 0:
-            match = matches[0]
-            tokens_masked += num_tokens_in_span
-            mask_ct += 1
+    offset = 0
+    num_to_mask = len(noun_chunks_to_mask)
+    num_removed_tokens = 0
+    for mask_idx in range(num_to_mask):
+        placeholder = f'<extra_id_{mask_idx}>'
+        span_size = noun_chunks_to_mask[mask_idx].end_char - noun_chunks_to_mask[mask_idx].start_char
+        actual_start = noun_chunks_to_mask[mask_idx].start_char + offset
+        actual_end = noun_chunks_to_mask[mask_idx].end_char + offset
+        masked_abstract = masked_abstract[:actual_start] + placeholder + masked_abstract[actual_end:]
+        offset += len(placeholder) - span_size
+        num_removed_tokens += len(str(noun_chunks_to_mask[mask_idx]).split(' '))
 
-            masked_abstract = masked_abstract[:match.start()] + placeholder_mask + masked_abstract[match.end():]
-            if tokens_masked > tokens_to_mask or mask_ct >= max_masks:
-                break
-
-    for mask_idx in range(mask_ct):
-        t5_template = f'<extra_id_{mask_idx}>'
-        masked_abstract = masked_abstract.replace(placeholder_mask, t5_template, 1)  # only the first instance
-
-    return masked_abstract, tokens_masked, mask_ct
+    return masked_abstract, num_removed_tokens, num_to_mask
 
 
-def build_masks(record, mask_rates):
+def build_masks(record, mask_rates, nlp, max_masks=20):
     outputs = []
-    uuid = record['uuid']
-    uuid_clean = clean_uuid(uuid)
-    span_fn = os.path.join(span_dir, f'{uuid_clean}.csv')
-    if not os.path.exists(span_fn):
-        print(f'No spans for {uuid}.')
-        return None
-    span_df = pd.read_csv(span_fn)
+    # uuid = record['uuid']
+    # uuid_clean = clean_uuid(uuid)
+    # span_fn = os.path.join(span_dir, f'{uuid_clean}.csv')
+    # if not os.path.exists(span_fn):
+    #     print(f'No spans for {uuid}.')
+    #     return None
+    # span_df = pd.read_csv(span_fn)
+
+    noun_chunks = [x for x in list(nlp(record['target']).noun_chunks) if len(str(x).strip()) > 1]
+    n = len(noun_chunks)
     for mask_rate in mask_rates:
-        for sample_idx in range(args.samples_per_bucket):
-            masked, removed_tokens, num_masks = sample_mask(record['abstract'], span_df, target_mask_rate=mask_rate)
+        num_to_mask = min(int(math.ceil(mask_rate * n)), max_masks)
+        seen_masked = set()
+        samples_collected = 0
+        for sample_idx in range(args.samples_per_bucket * 10):
+            idxs_to_mask = np.random.choice(np.arange(n), size=(num_to_mask), replace=False).tolist()
+            noun_chunks_to_mask = [noun_chunks[i] for i in sorted(idxs_to_mask)]
+            masked, removed_tokens, num_masks = implement_mask(record['target'], noun_chunks_to_mask)
+            if masked in seen_masked:
+                # print('Duplicate Mask. Skipping')
+                continue
+            seen_masked.add(masked)
             outputs.append({
-                'uuid': uuid,
+                'uuid': record['uuid'],
                 'target_mask_rate': mask_rate,
                 'sample_idx': sample_idx,
-                'abstract': record['abstract'],
+                'abstract': record['target'],
                 'masked_input': masked,
                 'removed_tokens': removed_tokens,
                 'num_masks': num_masks,
             })
+            samples_collected += 1
+            if samples_collected == args.samples_per_bucket:
+                break
+
     return outputs
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to Extract, Mask, and Fill Syntactic Spans from References')
-    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp/abstract'))
-    parser.add_argument('--mode', default='mask_spans', choices=['extract_spans', 'mask_spans', 'fill_spans', 'merge_chunks'])
+    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument(
+        '--mode', default='fill_spans',
+        choices=['extract_spans', 'mask_spans', 'fill_spans', 'merge_chunks']
+    )
     # Extract Span Arguments
     parser.add_argument('-overwrite', default=False, action='store_true')
     # Mask Span Arguments
-    parser.add_argument('--mask_rates', default='0.1,0.2,0.3,0.4,0.5')
-    parser.add_argument('--samples_per_bucket', default=1, type=int)
+    parser.add_argument('--mask_rates', default='0.25,0.75')
+    parser.add_argument('--samples_per_bucket', default=10, type=int)
     # Fill Span Arguments
-    parser.add_argument('--batch_size', default=32, type=int)  # Will use cuda:0 by default
+    parser.add_argument('--batch_size', default=16, type=int)  # Will use cuda:0 by default
     parser.add_argument('--num_beams', default=4, type=int)
     parser.add_argument('--chunk_idx', default=None, type=int)
     parser.add_argument('--num_chunks', default=10, type=int)
+    parser.add_argument('-debug', default=False, action='store_true')
 
     args = parser.parse_args()
-    
-    in_fn = os.path.join(args.data_dir, 'processed_docs.json')
-    span_dir = os.path.join(args.data_dir, 'mask_and_fill', 'spans')
-    os.makedirs(span_dir, exist_ok=True)
 
-    records = None
-    if args.mode in {'extract_spans', 'mask_spans', 'all'}:
-        print(f'Loading dataset from {in_fn}')
-        with open(in_fn, 'r') as fd:
-            records = ujson.load(fd)
+    datasets = data_loader(args.dataset, contrast_subsample=True)
+    # span_dir = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill', 'spans')
+    # os.makedirs(span_dir, exist_ok=True)
+    # span_dir = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill')
 
-    if args.mode in {'extract_spans', 'all'}:
-        stanza_nlp = stanza.Pipeline(lang='en', processors='tokenize,pos,constituency')
-
-        seen_fns = set()
-        duped_uuids = set()
-        for record in tqdm(records):
-            uuid = record['uuid']
-            uuid_clean = clean_uuid(uuid)
-            out_fn = os.path.join(span_dir, f'{uuid_clean}.csv')
-            if out_fn in seen_fns:
-                print(f'{uuid} is duplicated.')
-                print(f'{uuid} --> {uuid_clean}.')
-                duped_uuids.add(uuid_clean)
-            seen_fns.add(out_fn)
-            if os.path.exists(out_fn) and not args.overwrite:
-                print(f'Skipping {uuid}')
-                continue
-            span_df = get_spans(record['abstract'], stanza_nlp)
-            print(f'Saving {len(span_df)} constituent spans to {out_fn}')
-            span_df.to_csv(out_fn, index=False)
-        duped_uuids = list(duped_uuids)
-        debug_fn = '/home/t-gadams/duped_uuids.txt'
-        print(f'Writing {len(duped_uuids)} Duplicated UUIDS to {debug_fn}')
-        with open(debug_fn, 'w') as fd:
-            fd.write('\n'.join(duped_uuids))
+    # if args.mode in {'extract_spans', 'all'}:
+    #     stanza_nlp = stanza.Pipeline(lang='en', processors='tokenize,pos,constituency')
+    #
+    #     seen_fns = set()
+    #     duped_uuids = set()
+    #     for record in tqdm(dataset):
+    #         uuid = record['uuid']
+    #         uuid_clean = clean_uuid(uuid)
+    #         out_fn = os.path.join(span_dir, f'{uuid_clean}.csv')
+    #         if out_fn in seen_fns:
+    #             print(f'{uuid} is duplicated.')
+    #             print(f'{uuid} --> {uuid_clean}.')
+    #             duped_uuids.add(uuid_clean)
+    #         seen_fns.add(out_fn)
+    #         if os.path.exists(out_fn) and not args.overwrite:
+    #             print(f'Skipping {uuid}')
+    #             continue
+    #         span_df = get_spans(record['abstract'], stanza_nlp)
+    #         print(f'Saving {len(span_df)} constituent spans to {out_fn}')
+    #         span_df.to_csv(out_fn, index=False)
+    #     duped_uuids = list(duped_uuids)
+    #     debug_fn = 'duped_uuids.txt'
+    #     print(f'Writing {len(duped_uuids)} Duplicated UUIDS to {debug_fn}')
+    #     with open(debug_fn, 'w') as fd:
+    #         fd.write('\n'.join(duped_uuids))
     if args.mode in {'mask_spans', 'all'}:
+        print('Loading SciSpacy...')
+        nlp = spacy.load('en_core_sci_sm')
         mask_rates = list(map(float, args.mask_rates.split(',')))
-        outputs = list(p_uimap(lambda record: build_masks(record, mask_rates), records))
-        # outputs = list(map(lambda record: build_masks(record, mask_rates), records))
+        outputs = []
+        for split, dataset in datasets.items():
+            if args.debug:
+                outputs += list(map(lambda record: build_masks(record, mask_rates, nlp), dataset))
+            else:
+                outputs += list(p_uimap(lambda record: build_masks(record, mask_rates, nlp), dataset))
         outputs = [x for x in outputs if x is not None]
         outputs = list(itertools.chain(*outputs))
         outputs = pd.DataFrame(outputs)
-        out_fn = os.path.join(args.data_dir, 'mask_and_fill', 'span_masks.csv')
+        out_fn = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill', 'span_masks.csv')
         print(f'Saving {len(outputs)} masked inputs to {out_fn}')
         outputs.to_csv(out_fn, index=False)
 
@@ -225,7 +240,7 @@ if __name__ == '__main__':
             print(f'Mask Rate {mask_rate}: Remove Tokens={removed_tokens}, Number of Masks={num_masks}')
     if args.mode in {'fill_spans', 'all'}:
         mask_filler = MaskFiller(num_beams=args.num_beams)
-        in_fn = os.path.join(args.data_dir, 'mask_and_fill', 'span_masks.csv')
+        in_fn = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill', 'span_masks.csv')
         print(f'Reading in masked abstracts from {in_fn}')
         df = pd.read_csv(in_fn)
         df['target_length'] = df['removed_tokens'] + df['num_masks']
@@ -273,7 +288,7 @@ if __name__ == '__main__':
             out_dir = os.environ['AMLT_OUTPUT_DIR']
             os.makedirs(out_dir, exist_ok=True)
         else:
-            out_dir = os.path.join(args.data_dir, 'mask_and_fill')
+            out_dir = os.path.join(DATA_DIR, args.dataset, 'mask_and_fill')
         out_fn = os.path.join(out_dir, f'span_fills{chunk_suffix}.csv')
         print(f'Saving {len(augmented_df)} filled in examples to {out_fn}')
         augmented_df.to_csv(out_fn, index=False)

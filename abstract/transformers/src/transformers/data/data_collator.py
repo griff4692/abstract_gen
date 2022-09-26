@@ -570,7 +570,7 @@ class DataCollatorForContrastSeq2Seq:
         target_n = self.max_num_positive + self.max_num_negative
         # assert n >= target_n
         if target_n > n:
-            print('Warning! Target contrast set is larger than available sets.  Duplicating but should error out.')
+            print('Warning! Target contrast set is larger than available sets. Duplicating but should error out.')
             final = arr[-1]
             for _ in range(target_n - n):
                 arr.append(final)

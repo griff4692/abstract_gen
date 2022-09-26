@@ -299,26 +299,6 @@ def parse_args():
         ),
     )
     parser.add_argument(
-        "--val_max_target_length",
-        type=int,
-        default=1024,
-        help=(
-            "The maximum total sequence length for validation "
-            "target text after tokenization.Sequences longer than this will be truncated, sequences shorter will be "
-            "padded. Will default to `max_target_length`.This argument is also used to override the ``max_length`` "
-            "param of ``model.generate``, which is used during ``evaluate`` and ``predict``."
-        ),
-    )
-    parser.add_argument(
-        "--max_length",
-        type=int,
-        default=16384,
-        help=(
-            "The maximum total input sequence length after tokenization. Sequences longer than this will be truncated,"
-            " sequences shorter will be padded if `--pad_to_max_lengh` is passed."
-        ),
-    )
-    parser.add_argument(
         "--num_beams",
         type=int,
         default=1,
@@ -366,14 +346,14 @@ def parse_args():
     parser.add_argument(
         "--learning_rate",
         type=float,
-        default=2e-5,
+        default=3e-5,
         # help="Initial learning rate (after the potential warmup period) to use.",
     )
     parser.add_argument("--weight_decay", type=float, default=0.0, help="Weight decay to use.")
     parser.add_argument(
         "--max_train_steps",
         type=int,
-        default=20000,
+        default=50000,
         help="Total number of training steps to perform. If provided, overrides num_train_epochs.",
     )
     parser.add_argument(
@@ -390,9 +370,13 @@ def parse_args():
         choices=["linear", "cosine", "cosine_with_restarts", "polynomial", "constant", "constant_with_warmup"],
     )
     parser.add_argument(
-        "--num_warmup_steps", type=int, default=200, help="Number of steps for the warmup in the lr scheduler."
+        "--num_warmup_steps", type=int, default=2000, help="Number of steps for the warmup in the lr scheduler."
     )
-    parser.add_argument("--output_dir", type=str, default=os.path.join(DATA_DIR, 'weights'), help="Where to store the final model.")
+    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument(
+        "--output_dir", type=str, default=os.path.join(DATA_DIR, 'weights'),
+        help="Where to store the final model."
+    )
     parser.add_argument('--experiment', type=str, default='abstract_gen', help='Name of experiment')
     parser.add_argument('-debug', default=False, action='store_true')
     parser.add_argument("--seed", type=int, default=None, help="A seed for reproducible training.")
@@ -432,17 +416,11 @@ def parse_args():
     parser.add_argument('--contrast_weight', default=1.0, type=float)
     parser.add_argument('--contrast_methods', default='all')
     # For ranking objective
-    parser.add_argument('--contrast_rank_margin', default=0.001, type=float)  # Table 13 lambda https://arxiv.org/pdf/2203.16804.pdf this is 0.001
+    # Table 13 lambda https://arxiv.org/pdf/2203.16804.pdf this is 0.001
+    parser.add_argument('--contrast_rank_margin', default=0.001, type=float)
     parser.add_argument('--mle_weight', default=1.0, type=float)
 
     args = parser.parse_args()
-
-    # TODO remove - debug parameters of interest
-    # args.cpu = True
-    # args.contrast = True
-    # args.debug = True
-    # args.max_num_positive = args.max_num_negative = 2
-    # args.contrast_objective = 'margin_rank'
 
     if args.contrast:
         args.resume_from_checkpoint = os.path.join(args.output_dir, args.contrast_ckpt, 'best_ckpt')
@@ -570,13 +548,13 @@ def main():
     if args.seed is not None:
         set_seed(args.seed)
 
-    data_path = os.path.join(DATA_DIR, 'abstract', f'{args.hf_model}_splits')
+    data_path = os.path.join(DATA_DIR, args.dataset, f'{args.hf_model}_splits')
     print(f'Loading custom dataset from {data_path}')
     raw_datasets = load_from_disk(data_path)
 
     contrast_sets = None
     if args.contrast:
-        corrupt_fn = os.path.join(DATA_DIR, 'abstract', 'corruptions_25000_with_metrics.csv')
+        corrupt_fn = os.path.join(DATA_DIR, args.dataset, 'corruptions_25000_with_metrics.csv')
         print(f'Loading in corruptions from {corrupt_fn}')
         corruptions = pd.read_csv(corrupt_fn)
         contrast_sets = defaultdict(list)
@@ -616,14 +594,6 @@ def main():
             avail_idxs = [idx for idx, uuid in enumerate(split_uuids) if uuid in available_uuids]
             raw_datasets[split] = raw_datasets[split].select(avail_idxs)
 
-    if args.config_name:
-        config = AutoConfig.from_pretrained(args.config_name)
-    elif args.model_name_or_path:
-        config = AutoConfig.from_pretrained(args.model_name_or_path)
-    else:
-        config = CONFIG_MAPPING[args.model_type]()
-        logger.warning("You are instantiating a new config instance from scratch.")
-
     if args.hf_model == 't5':
         tokenizer = T5Tokenizer.from_pretrained(T5_MODEL)
         config = LongT5Config.from_pretrained(T5_MODEL)
@@ -645,7 +615,7 @@ def main():
         keep_cols.append('uuid')
     remove_cols = [x for x in all_cols if x not in keep_cols]
     train_dataset = raw_datasets['train'].remove_columns(remove_cols)
-    eval_dataset = raw_datasets["validation"].remove_columns(remove_cols)
+    eval_dataset = raw_datasets['validation'].remove_columns(remove_cols)
 
     # Log a few random samples from the training set:
     for index in random.sample(range(len(train_dataset)), 1):
@@ -699,7 +669,7 @@ def main():
 
     # Optimizer
     # Split weights in two groups, one with weight decay and the other not.
-    no_decay = ["bias", "LayerNorm.weight"]
+    no_decay = ['bias', 'LayerNorm.weight']
     non_contrast_np = [(n, p) for n, p in model.named_parameters() if 'contrast_projection' not in n]
     contrast_np = [(n, p) for n, p in model.named_parameters() if 'contrast_projection' in n]
     optimizer_grouped_parameters = [
@@ -717,7 +687,7 @@ def main():
 
     if args.contrast and args.contrast_objective == 'contrast':
         assert len(contrast_np) > 0
-        optimizer_grouped_parameters.append(        {
+        optimizer_grouped_parameters.append({
             'params': [p for n, p in contrast_np],
             'weight_decay': 0.0,
             'lr': 1e-3
@@ -742,10 +712,6 @@ def main():
     model, optimizer, train_dataloader, eval_dataloader, lr_scheduler = accelerator.prepare(
         model, optimizer, train_dataloader, eval_dataloader, lr_scheduler
     )
-
-    # We need to recalculate our total training steps as the size of the training dataloader may have changed.
-    # num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
-    # args.max_train_steps = args.num_train_epochs * num_update_steps_per_epoch
 
     # We need to initialize the trackers we use, and also store our configuration.
     # We initialize the trackers only on main process because `accelerator.log`
@@ -827,7 +793,10 @@ def main():
         neg_idxs = list(range(contrast_cutoff, c_set_size))
 
         if args.contrast_objective == 'unlikelihood':
-            contrast_losses['likelihood'] = label_smoother({'logits': contrast_logits[:, pos_idxs].view(-1, contrast_logits.size()[-1])}, contrast_labels[:, pos_idxs].view(-1))
+            contrast_losses['likelihood'] = label_smoother(
+                {'logits': contrast_logits[:, pos_idxs].view(-1, contrast_logits.size()[-1])},
+                contrast_labels[:, pos_idxs].view(-1)
+            )
             probs_neg = torch.softmax(contrast_logits[:, neg_idxs], dim=-1)
             unlikelihood_smooth_loss = label_smoothed_unlikelihood(probs_neg.view(-1, probs_neg.size()[-1]), contrast_labels[:, neg_idxs].view(-1))
             contrast_losses['unlikelihood'] = unlikelihood_smooth_loss
@@ -860,7 +829,9 @@ def main():
         elif args.contrast_objective == 'margin_rank':  # BRIO https://arxiv.org/pdf/2203.16804.pdf
             import torch.nn as nn
             loss_fct = nn.CrossEntropyLoss(reduction='none')
-            nll = loss_fct(contrast_output.logits.view(-1, model.config.vocab_size), contrast_labels.view(-1)).view(bsize, c_set_size, target_len)
+            nll = loss_fct(contrast_output.logits.view(-1, model.config.vocab_size), contrast_labels.view(-1)).view(
+                bsize, c_set_size, target_len
+            )
             seq_lens = (contrast_labels > -100).sum(dim=2)
 
             scores = - nll.sum(dim=2) / seq_lens
@@ -868,7 +839,7 @@ def main():
             gold_nll = loss_fct(outputs.logits.view(-1, model.config.vocab_size), gold_labels.view(-1)).view(bsize, -1)
             gold_lens = (gold_labels > -100).sum(dim=1, keepdim=True)
 
-            gold_scores = - gold_nll.sum(dim=1) / gold_lens 
+            gold_scores = - gold_nll.sum(dim=1) / gold_lens
 
             contrast_loss = 0
             for cand_idx in range(1, c_set_size):
@@ -884,15 +855,15 @@ def main():
             predicted_idx = np.mean(scores.argmax(dim=1).cpu().numpy())
             contrast_stats['predicted_rank_idx'].append(predicted_idx)
 
-            # pos_score = gold_scores.expand_as(scores)
-            # neg_score = scores
-            # pos_score = pos_score.contiguous().view(-1)
-            # neg_score = neg_score.contiguous().view(-1)
-            # ones = torch.ones_like(pos_score)
-            # gold_margin = 0
-            # loss_func = torch.nn.MarginRankingLoss(gold_margin)
-            # gold_weight = 1.0
-            # contrast_loss += gold_weight * loss_func(pos_score, neg_score, ones)
+            pos_score = gold_scores.expand_as(scores)
+            neg_score = scores
+            pos_score = pos_score.contiguous().view(-1)
+            neg_score = neg_score.contiguous().view(-1)
+            ones = torch.ones_like(pos_score)
+            gold_margin = 0
+            loss_func = torch.nn.MarginRankingLoss(gold_margin)
+            gold_weight = 1.0
+            contrast_loss += gold_weight * loss_func(pos_score, neg_score, ones)
             contrast_losses['contrast_rank_loss'] = contrast_loss
         else:
             raise Exception('Not implemented yet!')
@@ -906,11 +877,8 @@ def main():
         print('Starting validation run...')
         logger.info('Starting validation run...')
         model.eval()
-        if args.val_max_target_length is None:
-            args.val_max_target_length = args.max_target_length
-
         gen_kwargs = {
-            'max_length': args.val_max_target_length if args is not None else config.max_length,
+            'max_length': args.max_target_length,
             'num_beams': args.num_beams, 'no_repeat_ngram_size': 3,
         }
         samples_seen = 0
