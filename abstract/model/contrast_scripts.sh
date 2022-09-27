@@ -7,6 +7,9 @@ python run.py -contrast --contrast_metrics rouge1,rouge2,rougeL --max_num_positi
 python run.py -contrast --contrast_metrics rouge1,rouge2,rougeL --max_num_positive 1 --max_num_negative 1 --contrast_methods diverse_decoding_primera --contrast_objective positive_teacher --max_num_positive 1 --max_num_negative 1 --contrast_intra_sample_strategy max_margin --experiment rouge_positive_teacher
 python run.py -contrast --contrast_metrics rouge1,rouge2,rougeL --max_num_positive 2 --max_negative 2 --contrast_methods diverse_decoding_primera --contrast_objective contrast --experiment rouge_contrast
 
+# ACTUALLY WORKS!!
+# accelerate launch --mixed_precision=fp16 --use_deepspeed --num_machines=1 --gradient_accumulation_steps=16 --zero_stage=2 --offload_optimizer=cpu run.py -debug
+
 # GRAD_ACCUM=16
 # ZERO_STAGE=3
 # LAUNCH_CMD="accelerate launch --mixed_precision=fp16 --use_deepspeed --num_machines=1 --gradient_accumulation_steps=$GRAD_ACCUM --zero_stage=$ZERO_STAGE run.py"

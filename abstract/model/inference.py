@@ -22,6 +22,7 @@ import argparse
 import os
 
 from datasets import load_from_disk, load_metric
+import evaluate
 import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
 import pandas as pd
@@ -67,7 +68,7 @@ def main(args):
     args.max_source_length = 16384 if is_t5 else 4096
     args.max_target_length = 1024
     data_prefix = 't5' if is_t5 else 'primera'
-    data_path = os.path.join(DATA_DIR, 'abstract', f'{data_prefix}_splits')
+    data_path = os.path.join(DATA_DIR, args.dataset, f'{data_prefix}_splits')
 
     weight_dir = os.path.join(DATA_DIR, 'weights')
     experiment_dir = os.path.join(weight_dir, args.experiment)
@@ -99,6 +100,7 @@ def main(args):
 
     print(f'Loading custom dataset from {data_path}')
     predict_dataset = load_from_disk(data_path)['test']
+    uuids = predict_dataset['uuid']
 
     dataset_cols = list(predict_dataset.features.keys())
     important_cols = [x for x in dataset_cols if x not in {'input_ids', 'attention_mask', 'labels'}]
@@ -133,8 +135,8 @@ def main(args):
 
     print('Starting to evaluate run...')
     model = model.eval()
-    # if args.hf_model == 'primera' and args.fp16:
-    #     model = model.half()
+    if args.hf_model == 'primera':
+        model = model.half()
 
     gen_kwargs = {
         'max_length': args.max_target_length if args is not None else config.max_length,
@@ -143,12 +145,11 @@ def main(args):
 
     outputs = []
     data_idx = 0
-    uuids = predict_dataset['uuid']
     for batch in tqdm(dataloader, total=len(dataloader)):
         if args.hf_model == 'primera':
             add_global_attention_mask(batch)
             gen_kwargs['global_attention_mask'] = batch['global_attention_mask'].to(args.device)
-        with torch.no_grad():
+        with torch.no_grad(), torch.cuda.amp.autocast():
             generated_tokens = model.generate(
                 batch['input_ids'].to(args.device),
                 attention_mask=batch['attention_mask'].to(args.device),
@@ -190,6 +191,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_test_examples', default=2000, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--device', default=0, type=int)
+    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
 
     args = parser.parse_args()
     main(args)

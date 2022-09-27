@@ -38,12 +38,6 @@ def write_jsonl(data, fname):
             print(json.dumps(line, cls=NPEncoder), file=f)
 
 
-def get_longformer_science_checkpoint():
-    current_dir = pathlib.Path(os.path.realpath(__file__)).parent
-    fname = "/home/t-gadams/multivers/script/checkpoints/longformer_large_science.ckpt"
-    return str(fname)
-
-
 def unbatch(d, ignore=[]):
     """
     Convert a dict of batched tensors to a list of tensors per entry. Ignore any

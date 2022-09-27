@@ -112,8 +112,10 @@ def generate(args, experiment_dir, output_dir, verbose=True):
     config.vocab_size = len(tokenizer)
     print(f'Loading model from {ckpt_dir}')
 
-    model = model_constructor.from_pretrained(ckpt_dir, from_tf=False, config=config).to(args.device).eval() # .half()
+    model = model_constructor.from_pretrained(ckpt_dir, from_tf=False, config=config).to(args.device).eval()
     model.resize_token_embeddings(len(tokenizer))
+    if args.hf_model == 'primera':
+        model = model.half()
 
     print(f'Loading custom dataset from {data_path}')
     train_dataset = data_loader(args.dataset, contrast_subsample=True)[args.split]
@@ -200,7 +202,7 @@ def generate(args, experiment_dir, output_dir, verbose=True):
         if args.hf_model == 'primera':
             add_global_attention_mask(batch)
             gen_kwargs['global_attention_mask'] = batch['global_attention_mask'].to(args.device)
-        with torch.no_grad():
+        with torch.no_grad(), torch.cuda.amp.autocast():
             generated_tokens = model.generate(
                 batch['input_ids'].to(args.device),
                 attention_mask=batch['attention_mask'].to(args.device),

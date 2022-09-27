@@ -16,7 +16,7 @@ fuzzywuzzy
 python-Levenshtein
 evaluate
 bert-score
-accelerate==0.10.0
+accelerate
 stemming
 quantulum3
 deepspeed

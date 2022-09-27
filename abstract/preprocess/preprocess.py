@@ -104,7 +104,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--num_workers', default=8, type=int)
     parser.add_argument('--dataset', default='chemistry', choices=['pubmed', 'clinical', 'chemistry'])
-    parser.add_argument('--max_input_length', default=10000, type=int)
+    parser.add_argument('--max_input_length', default=4096, type=int)
     parser.add_argument('--max_target_length', default=1024, type=int)
     parser.add_argument('--model', default='primera', choices=['t5', 'primera'])
     parser.add_argument('-debug', action='store_true', default=False)

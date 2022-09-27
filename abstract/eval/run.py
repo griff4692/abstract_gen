@@ -18,6 +18,7 @@ from abstract.eval.extractive_fragments import parse_extractive_fragments
 from abstract.preprocess.preprocess import linearize_sections
 from abstract.corruptions.diverse_decoding import compute_rouge
 from abstract.eval.fact_checker import FactChecker
+from abstract.preprocess.preprocess import data_loader
 
 
 import torch.multiprocessing as mp
@@ -36,7 +37,10 @@ def df_to_table(df):
     print(','.join(metric_cols))
     output_str = []
     for col in metric_cols:
-        val = str(round(df[col].dropna().mean(), 4))
+        if col not in df:
+            val = 'N/A'
+        else:
+            val = str(round(df[col].dropna().mean(), 4))
         output_str.append(val)
     print(','.join(output_str))
 
@@ -81,14 +85,14 @@ def prepare(record, orig_data, uuid_cache=None, include_tokens=True, include_sou
     if uuid_cache is not None and uuid in uuid_cache:
         outputs = uuid_cache.get(uuid).copy()
     else:
-        reference = remove_eos_bos_from_str(orig_data['abstract'])
+        reference = remove_eos_bos_from_str(orig_data['target'])
         reference_sents = nltk.sent_tokenize(reference)
         outputs = {
             'reference': reference,
             'reference_sents': reference_sents,
         }
         if include_source:
-            source = remove_eos_bos_from_str(linearize_sections(orig_data['sections']))
+            source = remove_eos_bos_from_str(orig_data['input'])
             source_tokens = tokenize(source) if include_tokens else None
             source_sents = nltk.sent_tokenize(source)
             source_pre = {
@@ -246,6 +250,7 @@ def run_single_metric(records, bartscore_path, uuid2data, metric='rouge'):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to Evaluate Abstracts (real and synthetic corruptions)')
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
+    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('--fp', default='weights/primera_final/results/predictions.csv')
     parser.add_argument('--num_chunks', default=3, type=int)
     parser.add_argument('--chunk_idx', default=None, type=int)
@@ -317,14 +322,14 @@ if __name__ == '__main__':
         df_to_table(merged)
         exit(0)
 
-    in_fn = os.path.join(args.data_dir, 'abstract', 'processed_docs.json')
-    print(f'Loading in original data from {in_fn}')
-    with open(in_fn, 'r') as fd:
-        data = ujson.load(fd)
-    
+    data = data_loader(args.dataset, contrast_subsample=False)
     uuid2data = {}
-    for record in data:
-        uuid2data[record['uuid']] = record
+    for split, split_data in data.items():
+        for record in split_data:
+            if args.dataset == 'chemistry':
+                input = linearize_sections(record['sections'])
+                record['input'] = input
+            uuid2data[record['uuid']] = record
 
     print(f'Loading in predictions from {prediction_fn}')
     predict_df = pd.read_csv(prediction_fn).sort_values(by='uuid')
@@ -343,7 +348,9 @@ if __name__ == '__main__':
     if args.metric is None:
         augmented_records = run_in_parallel(records, bartscore_path=bartscore_path, uuid2data=uuid2data)
     else:
-        augmented_records = run_single_metric(records, bartscore_path=bartscore_path, uuid2data=uuid2data, metric=args.metric)
+        augmented_records = run_single_metric(
+            records, bartscore_path=bartscore_path, uuid2data=uuid2data, metric=args.metric
+        )
     print('Statistics returned. Storing them in a dataframe with original columns.')
     augmented_df = pd.DataFrame(augmented_records)
     n = len(augmented_df)

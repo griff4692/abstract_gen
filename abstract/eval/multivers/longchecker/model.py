@@ -13,7 +13,7 @@ from transformers import LongformerModel
 
 from abstract.eval.multivers.longchecker.allennlp_nn_util import batched_index_select
 from abstract.eval.multivers.longchecker.allennlp_feedforward import FeedForward
-from abstract.eval.multivers.longchecker.metrics import SciFactMetrics
+# from abstract.eval.multivers.longchecker.metrics import SciFactMetrics
 from abstract.eval.multivers.longchecker.util import *
 
 
@@ -105,12 +105,12 @@ class LongCheckerModel(pl.LightningModule):
         self.lr = hparams.lr
 
         # Metrics
-        fold_names = ["train", "valid", "test"]
-        metrics = {}
-        for name in fold_names:
-            metrics[f"metrics_{name}"] = SciFactMetrics(compute_on_step=False)
+        # fold_names = ["train", "valid", "test"]
+        # metrics = {}
+        # for name in fold_names:
+        #     metrics[f"metrics_{name}"] = SciFactMetrics(compute_on_step=False)
 
-        self.metrics = nn.ModuleDict(metrics)
+        # self.metrics = nn.ModuleDict(metrics)
 
     @staticmethod
     def add_model_specific_args(parent_parser):
@@ -248,17 +248,6 @@ class LongCheckerModel(pl.LightningModule):
         detached = {k: v.detach() for k, v in pred.items()}
         # Invoke the metrics appropriate for this fold.
         self.metrics[f"metrics_{fold}"](detached, batch)
-
-    def _log_metrics(self, fold):
-        "Log metrics for this epoch."
-        the_metric = self.metrics[f"metrics_{fold}"]
-        to_log = the_metric.compute()
-        the_metric.reset()
-        for k, v in to_log.items():
-            self.log(f"{fold}_{k}", v)
-
-        # Uncomment this if still hanging.
-            # self.log(f"{fold}_{k}", v, sync_dist=True, sync_dist_op="sum")
 
     def configure_optimizers(self):
         "Set the same LR for all parameters."

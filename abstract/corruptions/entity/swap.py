@@ -62,7 +62,8 @@ def swap(abstract, target_swap_rate, target_ents, cat2ents):
         idx = int(np.random.choice(len(remaining_ents), size=(1, ))[0])
         ent = remaining_ents[idx]
         text_to_remove = ent['text']
-        text_to_add = list(np.random.choice(cat2ents[ent['category']], size=(1, )))[0]
+        candidates = cat2ents[ent['category']]
+        text_to_add = list(np.random.choice(candidates['text'], p=candidates['p'], size=(1, )))[0]
         corrupted = corrupted.replace(text_to_remove.strip(), text_to_add.strip(), 1)
         num_swapped += 1
         remaining_ents = [remaining_ents[i] for i in range(len(remaining_ents)) if i != idx]
@@ -71,7 +72,7 @@ def swap(abstract, target_swap_rate, target_ents, cat2ents):
     return corrupted, num_swapped
 
 
-def perform_swaps(record, out_dir, swap_rates):
+def perform_swaps(record, out_dir, swap_rates, cat2ents=None):
     outputs = []
     uuid = record['uuid']
     uuid_clean = clean_uuid(uuid)
@@ -81,45 +82,44 @@ def perform_swaps(record, out_dir, swap_rates):
     except pd.errors.EmptyDataError:
         print(f'Empty DataFrame -> {entity_fn}. Skipping')
         return []
-    source_entities = entities[entities['source'] == 'paragraph'].to_dict('records')
-    target_entities = entities[entities['source'] == 'abstract'].to_dict('records')
-    cat2ents = defaultdict(set)
-    for ent in source_entities:
-        cat2ents[ent['category']].add(ent['text'])
-
-    for k, v in cat2ents.items():
-        cat2ents[k] = list(v)
+    target_entities = entities[entities['source'] == 'target'].to_dict('records')
+    if cat2ents is None:
+        source_entities = entities[entities['source'] == 'input'].to_dict('records')
+        cat2ents_raw = defaultdict(set)
+        for ent in source_entities:
+            cat2ents_raw[ent['category']].add(ent['text'])
+        cat2ents = {{'text': list(v), 'p': [1/len(v) for _ in range(v)]} for k, v in cat2ents_raw.items()}
 
     output_meta = {
         'uuid': record['uuid'],
-        'abstract': record['abstract'],
+        'input': record['input'],
     }
 
-    abstract_numbers = number_parser.parse(record['abstract'])
-
     linearized_sections = linearize_sections(record['sections'])
-    linearized_sections_trunc = linearized_sections[:min(len(linearized_sections), 25000)]  # Too long for number parser (very very slow at large lengths)
+    # Too long for number parser (very very slow at large lengths)
+    linearized_sections_trunc = linearized_sections[:min(len(linearized_sections), 25000)]
     source_numbers = number_parser.parse(linearized_sections_trunc)
 
     units2numbers = defaultdict(list)
     for num in source_numbers:
         units2numbers[num.unit.name].append(num.surface)
 
-    for sample_idx, swap_rate in enumerate(swap_rates):
-        row = output_meta.copy()
-        corrupted, ents_swapped = swap(record['abstract'], swap_rate, target_entities, cat2ents)
-        abstract_numbers = number_parser.parse(corrupted)
-        try:
-            corrupted, numbers_swapped = swap_numbers(corrupted, swap_rate, abstract_numbers, units2numbers)
-        except:
-            numbers_swapped = 0
-            print(f'Failed to swap numbers for {uuid}')
-        row['sample_idx'] = sample_idx
-        row['ents_swapped'] = ents_swapped
-        row['swap_rate'] = swap_rate
-        row['numbers_swapped'] = numbers_swapped
-        row['prediction'] = corrupted
-        outputs.append(row)
+    for cand_idx in range(args.samples_per_bucket):
+        for sample_idx, swap_rate in enumerate(swap_rates):
+            row = output_meta.copy()
+            corrupted, ents_swapped = swap(record['input'], swap_rate, target_entities, cat2ents)
+            abstract_numbers = number_parser.parse(corrupted)
+            try:
+                corrupted, numbers_swapped = swap_numbers(corrupted, swap_rate, abstract_numbers, units2numbers)
+            except:
+                numbers_swapped = 0
+                print(f'Failed to swap numbers for {uuid}')
+            row['sample_idx'] = sample_idx
+            row['ents_swapped'] = ents_swapped
+            row['swap_rate'] = swap_rate
+            row['numbers_swapped'] = numbers_swapped
+            row['prediction'] = corrupted
+            outputs.append(row)
     return outputs
 
 
@@ -131,13 +131,16 @@ def is_complete(record, out_dir):
 
 
 if __name__ == '__main__':
-    argparser = argparse.ArgumentParser('Arguments to process extract entities')
-    argparser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp/abstract'))
-    argparser.add_argument('--num_cpus', default=1, type=int)
-    argparser.add_argument('--swap_rates', default='0.2,0.4,0.6,0.8,1.0')
-    argparser.add_argument('-update_existing', default=False, action='store_true')
+    parser = argparse.ArgumentParser('Arguments to process extract entities')
+    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp/abstract'))
+    parser.add_argument('--num_cpus', default=1, type=int)
+    parser.add_argument('--swap_rates', default='0.5,1.0')
+    parser.add_argument('--samples_per_bucket', default=10, type=int)
+    parser.add_argument('-update_existing', default=False, action='store_true')
+    parser.add_argument('--dataset', default='chemistry', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--target_errors', default='intrinsic', choices=['intrinsic', 'extrinsic'])
 
-    args = argparser.parse_args()
+    args = parser.parse_args()
     args.update_existing = True
 
     args.swap_rates = list(map(float, args.swap_rates.split(',')))
@@ -165,10 +168,23 @@ if __name__ == '__main__':
             print('Removing already swapped examples...')
             data = [x for x in data if x['uuid'] not in done_uuids]
 
+        cat2ents = None
+        if args.target_errors == 'extrinsic':
+            in_fn = os.path.join(args.data_dir, args.dataset, 'entity_inventory.json')
+            print(f'Dumping inventory to {out_fn}')
+            with open(out_fn, 'r') as fd:
+                cat2ents = ujson.load(fd)
+
         if args.num_cpus > 1:
-            outputs = list(itertools.chain(*list(p_uimap(lambda record: perform_swaps(record, out_dir, args.swap_rates), data, num_cpus=args.num_cpus))))
+            outputs = list(itertools.chain(*list(p_uimap(
+                lambda record: perform_swaps(record, out_dir, args.swap_rates, cat2ents=cat2ents), data,
+                num_cpus=args.num_cpus
+            ))))
         else:
-            outputs = list(itertools.chain(*list(tqdm(map(lambda record: perform_swaps(record, out_dir, args.swap_rates), data), total=n))))
+            outputs = list(itertools.chain(*list(tqdm(map(
+                lambda record: perform_swaps(record, out_dir, args.swap_rates, cat2ents=cat2ents), data),
+                total=n
+            ))))
 
         outputs = pd.DataFrame(outputs)
         if existing_df is not None:

@@ -266,6 +266,12 @@ class CustomWandBTracker(GeneralTracker):
         self.run.finish()
         logger.info("WandB run closed")
 
+    def name(self):
+        return 'CustomWandB'
+
+    def tracker(self):
+        return self.run
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Finetune a transformers model on a summarization task")
@@ -695,7 +701,10 @@ def main():
     else:
         assert len(contrast_np) == 0
 
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters)
+    from deepspeed.ops.adam import DeepSpeedCPUAdam
+    optimizer = DeepSpeedCPUAdam(optimizer_grouped_parameters)
+
+    # optimizer = torch.optim.AdamW(optimizer_grouped_parameters)
 
     # Scheduler and math around the number of training steps.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -984,7 +993,7 @@ def main():
 
     # Sanity check the validation steps
     if not args.debug:
-        result, _ = run_validation(steps=3)
+        result, _ = run_validation(steps=1)
         accelerator.log(result, step=0)
         logger.info(result)
     logger.info(f'Starting epoch {starting_epoch}/{args.num_train_epochs}')
@@ -1025,7 +1034,9 @@ def main():
 
             # Contrast Objective
             if args.contrast:
-                contrast_losses, contrast_stats = contrast_step(outputs, batch['labels'], contrast_labels, contrast_cutoff=args.max_num_positive)
+                contrast_losses, contrast_stats = contrast_step(
+                    outputs, batch['labels'], contrast_labels, contrast_cutoff=args.max_num_positive
+                )
                 effective_coeff = args.contrast_weight / (len(contrast_losses) * args.gradient_accumulation_steps)
                 for k, v in contrast_losses.items():
                     optimizer_loss += effective_coeff * v
