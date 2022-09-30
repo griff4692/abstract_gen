@@ -12,6 +12,8 @@ import itertools
 
 from quantulum3 import parser as number_parser
 
+from abstract.preprocess.preprocess import data_loader
+
 
 def linearize_sections(sections):
     out_str = ''
@@ -63,7 +65,7 @@ def swap(abstract, target_swap_rate, target_ents, cat2ents):
         ent = remaining_ents[idx]
         text_to_remove = ent['text']
         candidates = cat2ents[ent['category']]
-        text_to_add = list(np.random.choice(candidates['text'], p=candidates['p'], size=(1, )))[0]
+        text_to_add = list(np.random.choice(candidates['text'], p=candidates['probability'], size=(1, )))[0]
         corrupted = corrupted.replace(text_to_remove.strip(), text_to_add.strip(), 1)
         num_swapped += 1
         remaining_ents = [remaining_ents[i] for i in range(len(remaining_ents)) if i != idx]
@@ -72,11 +74,11 @@ def swap(abstract, target_swap_rate, target_ents, cat2ents):
     return corrupted, num_swapped
 
 
-def perform_swaps(record, out_dir, swap_rates, cat2ents=None):
+def perform_swaps(record, entity_dir, swap_rates, cat2ents=None):
     outputs = []
     uuid = record['uuid']
     uuid_clean = clean_uuid(uuid)
-    entity_fn = os.path.join(out_dir, f'{uuid_clean}.csv')
+    entity_fn = os.path.join(entity_dir, f'{uuid_clean}.csv')
     try:
         entities = pd.read_csv(entity_fn)
     except pd.errors.EmptyDataError:
@@ -88,18 +90,18 @@ def perform_swaps(record, out_dir, swap_rates, cat2ents=None):
         cat2ents_raw = defaultdict(set)
         for ent in source_entities:
             cat2ents_raw[ent['category']].add(ent['text'])
-        cat2ents = {{'text': list(v), 'p': [1/len(v) for _ in range(v)]} for k, v in cat2ents_raw.items()}
+        cat2ents = {
+            k: {'text': list(v), 'probability': [1/len(v) for _ in range(len(v))]}
+            for k, v in cat2ents_raw.items()
+        }
 
     output_meta = {
         'uuid': record['uuid'],
-        'input': record['input'],
     }
 
-    linearized_sections = linearize_sections(record['sections'])
     # Too long for number parser (very very slow at large lengths)
-    linearized_sections_trunc = linearized_sections[:min(len(linearized_sections), 25000)]
-    source_numbers = number_parser.parse(linearized_sections_trunc)
-
+    input_trunc = record['input'][:min(len(record['input']), 20000)]
+    source_numbers = number_parser.parse(input_trunc)
     units2numbers = defaultdict(list)
     for num in source_numbers:
         units2numbers[num.unit.name].append(num.surface)
@@ -107,7 +109,7 @@ def perform_swaps(record, out_dir, swap_rates, cat2ents=None):
     for cand_idx in range(args.samples_per_bucket):
         for sample_idx, swap_rate in enumerate(swap_rates):
             row = output_meta.copy()
-            corrupted, ents_swapped = swap(record['input'], swap_rate, target_entities, cat2ents)
+            corrupted, ents_swapped = swap(record['target'], swap_rate, target_entities, cat2ents)
             abstract_numbers = number_parser.parse(corrupted)
             try:
                 corrupted, numbers_swapped = swap_numbers(corrupted, swap_rate, abstract_numbers, units2numbers)
@@ -132,62 +134,51 @@ def is_complete(record, out_dir):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to process extract entities')
-    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp/abstract'))
+    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
     parser.add_argument('--num_cpus', default=1, type=int)
     parser.add_argument('--swap_rates', default='0.5,1.0')
     parser.add_argument('--samples_per_bucket', default=10, type=int)
-    parser.add_argument('-update_existing', default=False, action='store_true')
-    parser.add_argument('--dataset', default='chemistry', choices=['pubmed', 'clinical', 'chemistry'])
-    parser.add_argument('--target_errors', default='intrinsic', choices=['intrinsic', 'extrinsic'])
+    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--target_errors', default='extrinsic', choices=['intrinsic', 'extrinsic'])
 
     args = parser.parse_args()
-    args.update_existing = True
 
     args.swap_rates = list(map(float, args.swap_rates.split(',')))
+    data = data_loader(args.dataset, contrast_subsample=True)
 
-    out_dir = os.path.join(args.data_dir, 'entity')
-    os.makedirs(out_dir, exist_ok=True)
+    entity_dir = os.path.join(args.data_dir, args.dataset, 'entity')
 
-    data_fn = os.path.join(args.data_dir, 'processed_docs.json')
-    print(f'Loading dataset from {data_fn}')
+    prev_n = 0
+    print('Filtering for examples with entities...')
+    filtered_data = []
+    for split, split_data in data.items():
+        prev_n += len(split_data)
+        filtered_data += list(split_data)
+        # filtered_data += list(filter(lambda x: not is_complete(x, entity_dir), split_data))
+    n = len(filtered_data)
+    out_fn = os.path.join(args.data_dir, args.dataset, f'{args.target_errors}_swaps.csv')
+    print(f'Processing {n}/{prev_n} complete records')
 
-    with open(data_fn, 'r') as fd:
-        data = ujson.load(fd)
-        prev_n = len(data)
-        print('Filtering for examples with entities...')
-        data = list(filter(lambda x: is_complete(x, out_dir), data))
-        n = len(data)
-        out_fn = os.path.join(args.data_dir, 'entity_number_swaps.csv')
-        print(f'Processing {n}/{prev_n} complete records')
+    cat2ents = None
+    if args.target_errors == 'extrinsic':
+        inventory_fn = os.path.join(args.data_dir, args.dataset, 'entity_inventory.json')
+        print(f'Loading inventory from {inventory_fn}')
+        with open(inventory_fn, 'r') as fd:
+            cat2ents = ujson.load(fd)
 
-        existing_df = None
-        if args.update_existing:
-            print(f'Loading partial entity swap dataframe from {out_fn}')
-            existing_df = pd.read_csv(out_fn)
-            done_uuids = set(existing_df['uuid'])
-            print('Removing already swapped examples...')
-            data = [x for x in data if x['uuid'] not in done_uuids]
+    if args.num_cpus > 1:
+        outputs = list(itertools.chain(*list(p_uimap(
+            lambda record: perform_swaps(record, entity_dir, args.swap_rates, cat2ents=cat2ents), filtered_data,
+            num_cpus=args.num_cpus
+        ))))
+    else:
+        outputs = list(itertools.chain(*list(tqdm(map(
+            lambda record: perform_swaps(record, entity_dir, args.swap_rates, cat2ents=cat2ents), filtered_data),
+            total=n
+        ))))
 
-        cat2ents = None
-        if args.target_errors == 'extrinsic':
-            in_fn = os.path.join(args.data_dir, args.dataset, 'entity_inventory.json')
-            print(f'Dumping inventory to {out_fn}')
-            with open(out_fn, 'r') as fd:
-                cat2ents = ujson.load(fd)
-
-        if args.num_cpus > 1:
-            outputs = list(itertools.chain(*list(p_uimap(
-                lambda record: perform_swaps(record, out_dir, args.swap_rates, cat2ents=cat2ents), data,
-                num_cpus=args.num_cpus
-            ))))
-        else:
-            outputs = list(itertools.chain(*list(tqdm(map(
-                lambda record: perform_swaps(record, out_dir, args.swap_rates, cat2ents=cat2ents), data),
-                total=n
-            ))))
-
-        outputs = pd.DataFrame(outputs)
-        if existing_df is not None:
-            outputs = pd.concat([existing_df, outputs])
-        print(f'Saving {len(outputs)} outputs to {out_fn}')
-        outputs.to_csv(out_fn, index=False)
+    outputs = pd.DataFrame(outputs)
+    # if existing_df is not None:
+    #     outputs = pd.concat([existing_df, outputs])
+    print(f'Saving {len(outputs)} outputs to {out_fn}')
+    outputs.to_csv(out_fn, index=False)

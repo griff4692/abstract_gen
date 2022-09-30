@@ -11,7 +11,7 @@ from abstract.preprocess.preprocess import data_loader
 from abstract.corruptions.entity.bern_entities import clean_uuid, is_incomplete
 
 
-def extract_entities_for_paper(record, stanza_nlp, max_input_sents=150):
+def extract_entities_for_paper(record, stanza_nlp, max_input_sents=100):
     all_ents = []
 
     target_ents = extract_stanza_entities(record['target'], stanza_nlp)
@@ -66,7 +66,7 @@ def extract_stanza_entities(text, stanza_nlp):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to process extract entities')
-    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp/abstract'))
+    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
     parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical'])
     parser.add_argument('-overwrite', default=False, action='store_true')
 

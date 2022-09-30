@@ -414,8 +414,19 @@ def parse_args():
     parser.add_argument('--contrast_metrics', default='bs_src_f1')
     parser.add_argument('--max_num_positive', default=3, type=int)
     parser.add_argument('--max_num_negative', default=3, type=int)
-    parser.add_argument('--contrast_intra_sample_strategy', default='random', choices=['random', 'max_margin', 'min_margin', 'min_value', 'max_value'])
-    parser.add_argument('--contrast_inter_sample_strategy', default='random', choices=['random', 'max_value', 'min_value', 'most_diverse', 'least_diverse', 'max_margin', 'min_margin'])
+    parser.add_argument(
+        '--contrast_intra_sample_strategy', default='random',
+        choices=[
+            'random', 'max_margin', 'min_margin', 'most_diverse', 'least_diverse', 'most_likely', 'least_likely',
+        ],
+    )
+    parser.add_argument(
+        '--contrast_inter_sample_strategy', default='random',
+        choices=[
+            'random', 'max_margin', 'min_margin', 'most_diverse', 'least_diverse', 'most_likely', 'least_likely',
+            'min_value', 'max_value'
+        ]
+    )
     parser.add_argument('--contrast_objective', default='contrast',
         choices=['unlikelihood', 'margin_rank', 'contrast', 'positive_teacher']
     )

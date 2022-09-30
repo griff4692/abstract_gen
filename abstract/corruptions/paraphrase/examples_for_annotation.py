@@ -1,32 +1,32 @@
 import os
-import ujson
 
 import argparse
 import numpy as np
 
 
+from abstract.preprocess.preprocess import data_loader
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to Generate Paraphrases of Abstracts')
-    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp/abstract'))
+    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
     parser.add_argument('--mode', default='annotations')
+    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--num_to_annotate', default=10, type=int)
 
     args = parser.parse_args()
-    
-    in_fn = os.path.join(args.data_dir, 'processed_docs.json')
-    para_dir = os.path.join(args.data_dir, 'paraphrase')
+
+    summaries = data_loader(args.dataset, contrast_subsample=False)['validation']['target']
+
+    para_dir = os.path.join(args.data_dir, args.dataset, 'paraphrase')
     os.makedirs(para_dir, exist_ok=True)
     out_fn = os.path.join(para_dir, 'paraphrase_annotations.txt')
 
-    with open(in_fn, 'r') as fd:
-        data = ujson.load(fd)
-
-    validation = [x for x in data if x['split'] == 'validation']
-    n = len(validation)
+    n = len(summaries)
     idxs = np.arange(n)
     np.random.seed(1992)
     np.random.shuffle(idxs)
-
-    abstracts = [validation[idx]['abstract'] for idx in idxs[:10]]
+    abstracts = [summaries[idx] for idx in idxs[:args.num_to_annotate]]
 
     out_str = ''
     for abstract in abstracts:

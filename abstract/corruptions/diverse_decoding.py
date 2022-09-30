@@ -89,7 +89,7 @@ def generate(args, experiment_dir, output_dir, verbose=True):
     args.hf_path = T5_MODEL if is_t5 else PRIMERA_MODEL
     model_constructor = LongT5ForConditionalGeneration if is_t5 else LEDForConditionalGeneration
     tokenizer_constructor = T5Tokenizer if is_t5 else AutoTokenizer
-    args.max_source_length = 16384 if is_t5 else 4096
+    args.max_source_length = 4096
     args.max_target_length = 1024
     data_prefix = 't5' if is_t5 else 'primera'
     data_path = os.path.join(DATA_DIR, 'abstract', f'{data_prefix}_splits')
@@ -118,27 +118,35 @@ def generate(args, experiment_dir, output_dir, verbose=True):
         model = model.half()
 
     print(f'Loading custom dataset from {data_path}')
-    train_dataset = data_loader(args.dataset, contrast_subsample=True)[args.split]
+    data_fn = os.path.join(DATA_DIR, args.dataset, f'{args.hf_model}_splits')
+    dataset = load_from_disk(data_fn)[args.split]
+    if args.split == 'train':
+        uuid_fn = os.path.join(DATA_DIR, args.dataset, 'contrast_uuids.csv')
+        uuids = pd.read_csv(uuid_fn)
+        uuids_to_keep = set(uuids[uuids['split'] == 'train']['uuid'])
+        idxs_to_keep = [i for i, uuid in enumerate(dataset['uuid']) if uuid in uuids_to_keep]
+        print(f'Filtering for the {len(idxs_to_keep)} UUIDs in the train contrast sample subset...')
+        dataset = dataset.select(idxs_to_keep)
 
-    if len(train_dataset) > args.max_examples:
+    if len(dataset) > args.max_examples:
         np.random.seed(1992)
-        train_idxs = np.arange(len(train_dataset))
+        train_idxs = np.arange(len(dataset))
         np.random.shuffle(train_idxs)
-        print(f'Subsampling {args.max_examples}/len(train_dataset)')
+        print(f'Subsampling {args.max_examples}/{len(dataset)}')
         idx_to_keep = train_idxs[:args.max_examples]
-        train_subset = train_dataset.select(idx_to_keep)
+        dataset_subset = dataset.select(idx_to_keep)
     else:
-        train_subset = train_dataset
+        dataset_subset = dataset
 
     chunk_suffix = ''
     if args.chunk_idx is not None:
         assert args.chunk_idx < args.num_chunks
-        data_idxs = np.arange(len(train_subset))
+        data_idxs = np.arange(len(dataset_subset))
         chunk_idxs = np.array_split(data_idxs, args.num_chunks)[args.chunk_idx]
-        train_subset = train_subset.select(chunk_idxs)
+        dataset_subset = dataset_subset.select(chunk_idxs)
         chunk_suffix = '_' + str(args.chunk_idx)
 
-    dataset_cols = list(train_subset.features.keys())
+    dataset_cols = list(dataset_subset.features.keys())
     important_cols = [x for x in dataset_cols if x not in {'input_ids', 'attention_mask', 'labels'}]
 
     # Data collator
@@ -155,7 +163,7 @@ def generate(args, experiment_dir, output_dir, verbose=True):
     )
 
     dataloader = DataLoader(
-        train_subset.remove_columns(important_cols),
+        dataset_subset.remove_columns(important_cols),
         shuffle=False,
         batch_size=args.batch_size,
         collate_fn=data_collator,
@@ -172,17 +180,19 @@ def generate(args, experiment_dir, output_dir, verbose=True):
 
     print('Starting to evaluate run...')
     gen_kwargs = {
-        'no_repeat_ngram_size': 3, 'early_stopping': True, 'max_length': 1024,
+        'no_repeat_ngram_size': 3,
+        'early_stopping': True,
+        'max_length': 512,
         # Triggers Diverse Beam Search
         'num_beam_groups': args.num_candidates,
         'num_beams': args.num_candidates,
         'num_return_sequences': args.num_candidates,
-        'diversity_penalty': 1.0,  # what to subtract from logits for duplicated words
+        'diversity_penalty': 1.0,  # What to subtract from logits for duplicated words
     }
 
     data_offset = 0
     num_complete = 0
-    uuids = train_subset['uuid']
+    uuids = dataset_subset['uuid']
     n = len(uuids)
     if 'AMLT_OUTPUT_DIR' in os.environ and os.environ['AMLT_OUTPUT_DIR'] is not None:
         singularity_out = os.environ['AMLT_OUTPUT_DIR']
@@ -195,7 +205,7 @@ def generate(args, experiment_dir, output_dir, verbose=True):
         out_fn = os.path.join(output_dir, f'predictions{chunk_suffix}{batch_suffix}.csv')
         batch_outputs = []
 
-        if os.path.exists(out_fn):
+        if os.path.exists(out_fn) and not args.overwrite:
             print(f'Already done {out_fn} Skipping.')
             continue
 
@@ -240,7 +250,10 @@ def generate(args, experiment_dir, output_dir, verbose=True):
             for clean_prediction, clean_label, prediction, reference, uuid, sample_idx in zip(
                 decoded_preds, decoded_labels_ext, prepared_preds, references, uuids_ext, sample_idxs
                 ):
-                output_row = {'prediction': clean_prediction, 'abstract': clean_label, 'uuid': uuid, 'sample_idx': sample_idx}
+                output_row = {
+                    'prediction': clean_prediction, 'target': clean_label,
+                    'uuid': uuid, 'sample_idx': sample_idx
+                }
                 rouge_obj = compute_rouge(metric, reference=reference, prediction=prediction)
                 output_row.update(rouge_obj)
                 batch_outputs.append(output_row)
@@ -252,17 +265,21 @@ def generate(args, experiment_dir, output_dir, verbose=True):
 
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser('Over-generating diverse candidates for summarization models to support contrastive learning.')
+    parser = argparse.ArgumentParser(
+        'Over-generating diverse candidates for summarization models to support contrastive learning.'
+    )
 
     parser.add_argument('--hf_model', default='primera', choices=['primera', 't5'])
     parser.add_argument('--experiment', default='primera')  # WandB name
     parser.add_argument('--num_candidates', default=10, type=int)
     parser.add_argument('--batch_size', default=8, type=int)
     parser.add_argument('--device', default=0, type=int)
-    parser.add_argument('--chunk_idx', default=0, type=int)
+    parser.add_argument('--chunk_idx', default=None, type=int)
     parser.add_argument('--num_chunks', default=5, type=int)
-    parser.add_argument('--max_examples', default=200000, type=int)
+    parser.add_argument('--max_examples', default=50000, type=int)
     parser.add_argument('--split', default='train')
+    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('-overwrite', default=False, action='store_true')
 
     parser.add_argument('--mode', default='generate', choices=['merge_chunks', 'generate'])
 
@@ -270,11 +287,7 @@ if __name__ == '__main__':
 
     weight_dir = os.path.join(DATA_DIR, 'weights')
     experiment_dir = os.path.join(weight_dir, args.experiment)
-    output_dir = os.path.join(experiment_dir, 'results', 'diverse_decoding')
-    if args.split == 'validation':
-        output_dir = os.path.join(experiment_dir, 'results', 'diverse_decoding_validation')
-        args.num_chunks = 1
-        args.chunk_idx = 0  # Only 1000 examples
+    output_dir = os.path.join(experiment_dir, 'results', f'diverse_decoding_{args.split}')
     os.makedirs(output_dir, exist_ok=True)
     print(f'Saving all outputs to {output_dir}')
 

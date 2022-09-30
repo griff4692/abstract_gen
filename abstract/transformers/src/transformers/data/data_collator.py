@@ -594,6 +594,14 @@ class DataCollatorForContrastSeq2Seq:
             idxs_to_keep = list(range(target_n))
         elif self.contrast_sample_strategy == 'min_value':
             idxs_to_keep = [n - 1 - x for x in range(target_n)]
+        elif self.contrast_sample_strategy == 'most_diverse':
+            raise Exception('Please implement me by calling eval.diversity function')
+        elif self.contrast_sample_strategy == 'least_diverse':
+            raise Exception('Please implement me by calling eval.diversity function')
+        elif self.contrast_sample_strategy == 'most_likely':
+            raise Exception('Please implement me by calling looking up bartscore')
+        elif self.contrast_sample_strategy == 'least_likely':
+            raise Exception('Please implement me by calling looking up bartscore')
         return [arr[i] for i in np.sort(idxs_to_keep)]
 
     def __call__(self, features, return_tensors=None):
