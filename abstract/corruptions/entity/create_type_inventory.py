@@ -20,15 +20,13 @@ def read_fn(fn):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to process extract entities')
-    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp/abstract'))
+    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
     parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('-overwrite', default=False, action='store_true')
 
     args = parser.parse_args()
 
-    in_dir = os.path.join(args.data_dir, args.dataset, 'entity')
     pattern = os.path.join(args.data_dir, args.dataset, 'entity', '*.csv')
-
     fns = list(glob(pattern))
 
     records = list(itertools.chain(*list(filter(None, list(p_uimap(read_fn, fns))))))
