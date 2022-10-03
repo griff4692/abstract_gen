@@ -24,3 +24,5 @@ openai
 dill
 scispacy
 ujson
+p-tqdm
+tqdm
