@@ -712,8 +712,9 @@ def main():
     else:
         assert len(contrast_np) == 0
 
-    from deepspeed.ops.adam import DeepSpeedCPUAdam
-    optimizer = DeepSpeedCPUAdam(optimizer_grouped_parameters)
+    optimizer = torch.optim.AdamW(optimizer_grouped_parameters)
+    # from deepspeed.ops.adam import DeepSpeedCPUAdam
+    # optimizer = DeepSpeedCPUAdam(optimizer_grouped_parameters)
 
     # optimizer = torch.optim.AdamW(optimizer_grouped_parameters)
 

@@ -12,10 +12,11 @@ from tqdm import tqdm
 import numpy as np
 from random import choice
 
-
 openai.api_key = os.getenv('OPENAI_API_KEY')
 print(openai.api_key)
 assert len(openai.api_key) > 0
+
+from abstract.preprocess.preprocess import data_loader
 
 
 def build_prompt(abstract, annotated_abstracts):
@@ -59,7 +60,8 @@ def paraphrase_with_gpt(args, record, annotated_abstracts):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to process extract entities')
-    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp/abstract'))
+    parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
+    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('-overwrite', default=False, action='store_true')
     parser.add_argument('--few_shot_n', default=1, type=int)
     parser.add_argument('--num_candidates', default=5, type=int)
@@ -67,11 +69,10 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    out_dir = os.path.join(args.data_dir, 'paraphrase', 'gpt')
+    out_dir = os.path.join(args.data_dir, args.dataset, 'paraphrase', 'gpt')
     os.makedirs(out_dir, exist_ok=True)
 
-    data_fn = os.path.join(args.data_dir, 'processed_docs.json')
-    print(f'Loading dataset from {data_fn}')
+    dataset = data_loader(args.dataset, contrast_subsample=True)
     annotations_fn = os.path.join(CWD, 'annotations.txt')
     with open(annotations_fn, 'r') as fd:
         paraphrase_annotations = fd.readlines()
@@ -84,30 +85,31 @@ if __name__ == '__main__':
             assert 'Paraphrase:' in paraphrase_annotations[idx]
             paraphrase_annotation_tuples[-1][1].append(paraphrase_annotations[idx].replace('Paraphrase:', ''))
 
-    with open(data_fn, 'r') as fd:
-        data = ujson.load(fd)
+    for split, data in dataset.items():
         prev_n = len(data)
         if not args.overwrite:
             print('Filtering out already done examples...')
             data = list(filter(lambda x: is_incomplete(x, out_dir), data))
 
-            for record in tqdm(data):
-                uuid = record['uuid']
-                uuid_clean = clean_uuid(uuid)
-                out_fn = os.path.join(out_dir, f'{uuid_clean}.csv')
-                try:
-                    paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples)
-                except openai.error.RateLimitError:
-                    print('Rate limit exceeded. Sleeping for a minute and re-trying.')
-                    sleep(60)
-                    paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples)
-                except openai.error.InvalidRequestError as e:
-                    print(e)
-                    print('Skipping for now.')
-                    continue
+        for record in tqdm(data):
+            uuid = record['uuid']
+            uuid_clean = clean_uuid(uuid)
+            out_fn = os.path.join(out_dir, f'{uuid_clean}.csv')
+            try:
+                paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples)
+            except openai.error.RateLimitError:
+                print('Rate limit exceeded. Sleeping for a minute and re-trying.')
+                sleep(60)
+                paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples)
+            except openai.error.InvalidRequestError as e:
+                print(e)
+                print('Skipping for now.')
+                continue
 
-                output_df = pd.DataFrame([
-                    {'uuid': record['uuid'], 'abstract': record['abstract'], 'prediction': p, 'paraphrase_idx': i}
-                    for i, p in enumerate(paraphrases)
-                ])
-                output_df.to_csv(out_fn, index=False)
+            output_df = pd.DataFrame([
+                {
+                    'uuid': record['uuid'], 'split': split, 'abstract': record['abstract'],
+                    'prediction': p, 'paraphrase_idx': i
+                } for i, p in enumerate(paraphrases)
+            ])
+            output_df.to_csv(out_fn, index=False)
