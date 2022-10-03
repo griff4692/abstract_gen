@@ -32,7 +32,11 @@ if __name__ == '__main__':
     records = list(itertools.chain(*list(filter(None, list(p_uimap(read_fn, fns))))))
     raw_inventory = defaultdict(list)
     for record in records:
-        raw_inventory[record['category']].append(record['text'].strip(string.punctuation).strip())
+        try:
+            raw_inventory[record['category']].append(record['text'].strip(string.punctuation).strip())
+        except:
+            t = record['text']
+            print(f'Invalid text -> {t}')
 
     inventory = {}
     for k, v in raw_inventory.items():
