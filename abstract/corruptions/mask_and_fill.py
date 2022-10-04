@@ -183,6 +183,7 @@ if __name__ == '__main__':
     parser.add_argument('--chunk_idx', default=None, type=int)
     parser.add_argument('--num_chunks', default=10, type=int)
     parser.add_argument('-debug', default=False, action='store_true')
+    parser.add_argument('--gpu_device', default=0, type=int)
 
     args = parser.parse_args()
 
@@ -238,7 +239,7 @@ if __name__ == '__main__':
             num_masks = mr['num_masks'].dropna().mean()
             print(f'Mask Rate {mask_rate}: Remove Tokens={removed_tokens}, Number of Masks={num_masks}')
     if args.mode in {'fill_spans', 'all'}:
-        mask_filler = MaskFiller(num_beams=args.num_beams)
+        mask_filler = MaskFiller(device=args.gpu_device, num_beams=args.num_beams)
         in_fn = os.path.join(mask_and_fill_dir, 'span_masks.csv')
         print(f'Reading in masked abstracts from {in_fn}')
         df = pd.read_csv(in_fn)
