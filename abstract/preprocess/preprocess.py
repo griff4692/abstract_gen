@@ -92,10 +92,7 @@ def load_clinical(contrast_subsample=False):
     test_df = data[data['split'] == 'test']
 
     if contrast_subsample:
-        uuid_fn = os.path.join(DATA_DIR, 'clinical', 'contrast_uuids.csv')
-        uuids = pd.read_csv(uuid_fn)
-        uuids_to_keep = set(uuids[uuids['split'] == 'train']['uuid'])
-        train_df = train_df[train_df['uuid'].isin(uuids_to_keep)]
+        print('Skipping. There is no contrast sub-sample because dataset is small.')
 
     train_dataset = Dataset.from_dict(train_df, split='train')
     validation_dataset = Dataset.from_dict(validation_df, split='validation')
