@@ -7,6 +7,8 @@ import argparse
 from datasets import load_dataset
 from datasets import Dataset, DatasetDict
 import pandas as pd
+import numpy as np
+import swifter
 from transformers import AutoTokenizer, T5Tokenizer
 from tqdm import tqdm
 
@@ -15,6 +17,21 @@ T5_MODEL = 'google/long-t5-tglobal-base'
 PRIMERA_MODEL = 'allenai/PRIMERA'
 DATA_DIR = os.path.expanduser('~/data_tmp')
 PUBMED_PATH = 'ccdv/pubmed-summarization'
+
+
+def linearize_mimic(text):
+    # HTML_REGEX_NO_SPACE = r'(<[a-z][^>]+>|<\/?[a-z]>)'
+    "https://github.com/amazon-research/summary-reference-revision/src/comp_med_dsum_eval/ref_reviser/dataset.py"
+    def get_attr(tag, attr):
+        return re.search(attr + r'=([^ ]+)', tag).group(1).strip('<>: ')
+    inputs = text.split('<SEP>')
+    output_str = ''
+    for i, input in enumerate(inputs):
+        if input.startswith('<h'):
+            output_str += '\n' + get_attr(input, 'raw').replace('_', ' ').strip() + ':\n'
+        elif input.startswith('<s'):
+            output_str += inputs[i + 1].strip() + ' '
+    return output_str.strip()
 
 
 def load_chemistry(contrast_subsample=False):
@@ -48,6 +65,50 @@ def load_chemistry(contrast_subsample=False):
         return dataset
 
 
+def load_clinical(contrast_subsample=False):
+    data_fn = os.path.join(DATA_DIR, 'clinical', 'mimic_clinsum.csv')
+    if os.path.exists(data_fn):
+        print(f'Reading in dataset file from {data_fn}')
+        data = pd.read_csv(data_fn).dropna()
+        assert 'uuid' in data.columns
+    else:
+        raw_data_fn = os.path.join(DATA_DIR, 'clinical', 'summary_dataset_rouge_annotated.csv')
+        print(f'Reading in dataset file from {raw_data_fn}')
+        data = pd.read_csv(raw_data_fn).dropna()
+        split = ['validation'] * 1000 + ['test'] * 2000 + ['train'] * (len(data) - 3000)
+        np.random.seed(1992)
+        np.random.shuffle(split)
+        data['split'] = split
+        data = data.rename(columns={
+            'example_id': 'uuid',
+            'source': 'input',
+        })
+
+        data['input'] = data['input'].swifter.apply(linearize_mimic)
+        data['target'] = data['target'].swifter.apply(linearize_mimic)
+        data.dropna().to_csv(data_fn, index=False)
+    train_df = data[data['split'] == 'train']
+    validation_df = data[data['split'] == 'validation']
+    test_df = data[data['split'] == 'test']
+
+    if contrast_subsample:
+        uuid_fn = os.path.join(DATA_DIR, 'clinical', 'contrast_uuids.csv')
+        uuids = pd.read_csv(uuid_fn)
+        uuids_to_keep = set(uuids[uuids['split'] == 'train']['uuid'])
+        train_df = train_df[train_df['uuid'].isin(uuids_to_keep)]
+
+    train_dataset = Dataset.from_dict(train_df, split='train')
+    validation_dataset = Dataset.from_dict(validation_df, split='validation')
+    test_dataset = Dataset.from_dict(test_df, split='test')
+
+    print(f'{len(train_dataset)} / {len(validation_dataset)} / {len(test_dataset)} Train / Val / Test splits')
+
+    dataset = DatasetDict(
+        {'train': train_dataset, 'test': test_dataset, 'validation': validation_dataset}
+    )
+    return dataset
+
+
 def load_pubmed(contrast_subsample=False):
     dataset = load_dataset(PUBMED_PATH)
     dataset = dataset.rename_columns({
@@ -74,6 +135,8 @@ def data_loader(name, contrast_subsample=False):
         return load_pubmed(contrast_subsample=contrast_subsample)
     elif name == 'chemistry':
         return load_chemistry(contrast_subsample=contrast_subsample)
+    elif name == 'clinical':
+        return load_clinical(contrast_subsample=contrast_subsample)
     else:
         raise Exception('Not implemented Yet!')
 
@@ -99,11 +162,19 @@ def process(example):
     }
 
 
+def process_mimic(example):
+    return {
+        'uuid': example['example_id'],
+        'input': linearize_mimic(example['source']),
+        'target': linearize_mimic(example['target']),
+    }
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Tokenize with T5 / PRIMERA and split into train-validation-test')
 
     parser.add_argument('--num_workers', default=8, type=int)
-    parser.add_argument('--dataset', default='chemistry', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--dataset', default='clinical', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('--max_input_length', default=4096, type=int)
     parser.add_argument('--max_target_length', default=1024, type=int)
     parser.add_argument('--model', default='primera', choices=['t5', 'primera'])
@@ -127,9 +198,11 @@ if __name__ == '__main__':
     if args.dataset == 'chemistry':
         dataset = load_chemistry()
     elif args.dataset == 'clinical':
-        raise Exception('Not Done Yet!')
+        dataset = load_clinical()
     elif args.dataset == 'pubmed':
         dataset = load_pubmed()
+    else:
+        raise Exception('Not Done Yet!')
 
     def preprocess_function(examples):
         inputs = examples['input']

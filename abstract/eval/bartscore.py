@@ -6,18 +6,13 @@ from transformers import (
     T5Tokenizer,
     LongT5ForConditionalGeneration,
     LEDForConditionalGeneration,
+    PegasusForConditionalGeneration,
+    PegasusTokenizer
 )
 from transformers.trainer_pt_utils import LabelSmoother
 from tqdm import tqdm
 
 from abstract.eval.utils import get_batch_ranges
-
-
-MODELS = {
-    't5': 'google/long-t5-tglobal-base',
-    'primera': 'allenai/PRIMERA',
-    'scifive': 'razent/SciFive-base-Pubmed_PMC'
-}
 
 
 def add_global_attention_mask(batch):
@@ -28,35 +23,36 @@ def add_global_attention_mask(batch):
 
 
 class LikelihoodWrapper:
-    def __init__(self, hf_model, model_path=None, device='cuda:0', batch_size=4):
+    def __init__(self, hf_config, model_path=None, device='cuda:0', batch_size=4):
         self.device = device
         self.batch_size = batch_size
-        if hf_model == 't5':
-            model_constructor = LongT5ForConditionalGeneration
-            tokenizer_constructor = T5Tokenizer
-            self.max_source_length = 4096  # Incredibly slow at 16,384 16384
-        elif hf_model == 'scifive':
-            model_constructor = AutoModelForSeq2SeqLM
-            tokenizer_constructor = AutoTokenizer
+        if 'pegasus' in hf_config:
+            model_constructor = PegasusForConditionalGeneration
+            tokenizer_constructor = PegasusTokenizer
             self.max_source_length = 1024
-        elif hf_model == 'primera':
+        elif 'led' in hf_config:
             model_constructor = LEDForConditionalGeneration
             tokenizer_constructor = AutoTokenizer
             self.max_source_length = 4096
         else:
             raise Exception('Unrecognized HF model...')
         self.max_target_length = 512  # Too slow otherwise
-        self.hf_model = hf_model
-        if model_path is None:
-            # assume model path is the huggingface name
-            model_path = MODELS[hf_model]
-        print(f'Loading config from {MODELS[hf_model]}')
-        config = AutoConfig.from_pretrained(MODELS[hf_model])
-        self.tokenizer = tokenizer_constructor.from_pretrained(MODELS[hf_model])
+        self.hf_config = hf_config
+        config = AutoConfig.from_pretrained(hf_config)
+        self.tokenizer = tokenizer_constructor.from_pretrained(hf_config)
         config.vocab_size = len(self.tokenizer)
-        self.model = model_constructor.from_pretrained(model_path, config=config).to(device).eval()
+        if 'led' in hf_config and model_path is None:  # This is a Pytorch Lightning wrapped HuggingFace model
+            weights = torch.load(model_path)['state_dict']
+            led_weights = {k.replace('model.', ''): v for k, v in weights.items()}
+            for k, v in weights.items():
+                if k.startswith('model.'):
+                    led_weights[k.replace('model.', '')] = v
+            self.model = model_constructor(config=config).to(device).eval().half()
+            self.model.load_state_dict(led_weights)
+        else:
+            model_path = model_path if model_path is not None else hf_config
+            self.model = model_constructor.from_pretrained(model_path, config=config).to(device).eval()
         self.label_smoother = LabelSmoother(0.1)
-
         self.metric_names = 'bart_score'
 
     def compute(self, summary, source):
@@ -78,7 +74,7 @@ class LikelihoodWrapper:
 
         model_inputs['labels'] = labels['input_ids']
 
-        if self.hf_model == 'primera':
+        if 'led' in self.hf_config:
             global_attention_mask = torch.zeros_like(model_inputs['input_ids'])
             # put global attention on <s> token
             global_attention_mask[:, 0] = 1
@@ -95,7 +91,7 @@ class LikelihoodWrapper:
 
         print('Starting BartScore inference...')
         bartscores = []
-        with torch.no_grad():
+        with torch.no_grad(), torch.cuda.amp.autocast():
             for batch_start, batch_end in tqdm(batch_ranges, total=len(batch_ranges), desc='BartScore'):
                 batch_data = [batch[i] for i in range(batch_start, batch_end)]
                 model_inputs = self.tokenizer(
@@ -115,8 +111,8 @@ class LikelihoodWrapper:
                 labels[labels == self.tokenizer.pad_token_id] = -100
                 model_inputs['labels'] = labels
 
-                if self.hf_model == 'primera':
-                    print(f'Adding global attention masks')
+                if {'led', 'primera'} in self.hf_config:
+                    # print(f'Adding global attention masks')
                     add_global_attention_mask(model_inputs)
 
                 model_inputs = {k: v.to(self.device) for k, v in model_inputs.items()}

@@ -10,6 +10,7 @@ import numpy as np
 # import multiprocessing
 from collections import defaultdict
 from tqdm import tqdm
+from p_tqdm import p_uimap
 import itertools
 
 from abstract.eval.bertscore import BertScoreWrapper
@@ -131,13 +132,15 @@ def _compute_extractive_frags(records, queue=None):
     exit(0)
 
 
+def single_rouge(record, rouge_metric):
+    row = {'temp_id': record['temp_id']}
+    row.update(compute_rouge(rouge_metric, record['reference'], record['prediction'], rouge_types=['rouge1', 'rouge2']))
+    return row
+
+
 def _compute_rouge(records, queue=None):
     rouge_metric = load_metric('rouge')
-    outputs = []
-    for record in tqdm(records, total=len(records), desc='ROUGE Wrapper'):
-        row = {'temp_id': record['temp_id']}
-        row.update(compute_rouge(rouge_metric, record['reference'], record['prediction'], rouge_types=['rouge1', 'rouge2']))
-        outputs.append(row)
+    outputs = list(p_uimap(lambda record: single_rouge(record, rouge_metric), records, num_cpus=0.5))
     if queue is None:
         return outputs
     queue.put(outputs)
@@ -145,7 +148,7 @@ def _compute_rouge(records, queue=None):
     exit(0)
 
 
-def run_in_parallel(records, bartscore_path, uuid2data):
+def run_in_parallel(records, bartscore_hf_model, bartscore_path, uuid2data):
     metric_outputs = []
 
     print('Preprocessing inputs and outputs...')
@@ -164,7 +167,7 @@ def run_in_parallel(records, bartscore_path, uuid2data):
     print('Initializing BERTScore')
     bert_scorer = BertScoreWrapper()
     print('Initializing BartScore')
-    bart_scorer = LikelihoodWrapper(hf_model='t5', model_path=bartscore_path)
+    bart_scorer = LikelihoodWrapper(hf_config=bartscore_hf_model, model_path=bartscore_path)
     print('Initializing FactChecker')
     fact_checker = FactChecker()
 
@@ -200,26 +203,27 @@ def run_in_parallel(records, bartscore_path, uuid2data):
     return records
 
 
-def run_single_metric(records, bartscore_path, uuid2data, metric='rouge'):
-    metric_outputs = []
-
+def run_single_metric(records, bartscore_hf_model, bartscore_path, uuid2data, metric='rouge'):
     print('Preprocessing inputs and outputs...')
     uuid_cache = {}
     eval_inputs = []
     for record in tqdm(records, total=len(records)):
-        row = prepare(record, uuid2data[record['uuid']], uuid_cache, include_tokens=metric=='extractive_fragments', include_source=metric != 'rouge')
+        row = prepare(
+            record, uuid2data[record['uuid']], uuid_cache, include_tokens=metric=='extractive_fragments',
+            include_source=metric != 'rouge'
+        )
         if row['uuid'] not in uuid_cache:
             uuid_cache[row['uuid']] = row
         eval_inputs.append(row)
     print('Done preprocessing...')
-    
+
     if metric == 'bert_score':
         print('Initializing BERTScore')
         bert_scorer = BertScoreWrapper()
         metric_outputs = bert_scorer.compute_batch(eval_inputs)
     elif metric == 'bart_score':
         print('Initializing BartScore')
-        bart_scorer = LikelihoodWrapper(hf_model='t5', model_path=bartscore_path)
+        bart_scorer = LikelihoodWrapper(hf_model=bartscore_hf_model, model_path=bartscore_path)
         metric_outputs = bart_scorer.compute_batch(eval_inputs)
         bart_scorer.cleanup()
     elif metric == 'extractive_fragments':
@@ -260,7 +264,12 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    bartscore_path = os.path.join(args.data_dir, 'weights', 'long_t5', 'best_ckpt')
+    if args.dataset in {'chemistry', 'pubmed'}:
+        bartscore_path = None
+        bartscore_hf_model = 'google/pegasus-pubmed'
+    else:
+        bartscore_path = os.path.join(args.data_dir, args.dataset, 'clinical_bart_score.ckpt')
+        bartscore_hf_model = 'longformer'
     prediction_fn = os.path.join(args.data_dir, args.fp)
 
     if args.mode == 'to_table':
@@ -346,10 +355,13 @@ if __name__ == '__main__':
     records = chunk_df.to_dict('records')
 
     if args.metric is None:
-        augmented_records = run_in_parallel(records, bartscore_path=bartscore_path, uuid2data=uuid2data)
+        augmented_records = run_in_parallel(
+            records, bartscore_hf_model=bartscore_hf_model, bartscore_path=bartscore_path, uuid2data=uuid2data
+        )
     else:
         augmented_records = run_single_metric(
-            records, bartscore_path=bartscore_path, uuid2data=uuid2data, metric=args.metric
+            records, bartscore_hf_model=bartscore_hf_model, bartscore_path=bartscore_path, uuid2data=uuid2data,
+            metric=args.metric
         )
     print('Statistics returned. Storing them in a dataframe with original columns.')
     augmented_df = pd.DataFrame(augmented_records)

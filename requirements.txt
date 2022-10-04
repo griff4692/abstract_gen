@@ -26,3 +26,6 @@ scispacy
 ujson
 p-tqdm
 tqdm
+scikit-learn==1.0.2
+swifter
+pytorch-lightning

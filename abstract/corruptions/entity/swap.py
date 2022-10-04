@@ -45,7 +45,7 @@ def swap_numbers(text, target_swap_rate, abstract_numbers, units2numbers):
         shuffle(cands)
         cand = cands[0]
         s, e = min(len(corrupted), num.span[0]), min(len(corrupted), num.span[1])
-        corrupted = corrupted[:s] +  cand + corrupted[e:]
+        corrupted = corrupted[:s] + cand + corrupted[e:]
     return corrupted, len(numbers_to_swap)
 
 
@@ -81,12 +81,21 @@ def perform_swaps(record, entity_dir, swap_rates, cat2ents=None):
     entity_fn = os.path.join(entity_dir, f'{uuid_clean}.csv')
     try:
         entities = pd.read_csv(entity_fn)
+        sources = set(entities['source'])
+        if 'paragraph' in sources:
+            input_val = 'paragraph'
+        else:
+            input_val = 'input'
+        if 'abstract' in sources:
+            target_val = 'abstract'
+        else:
+            target_val = 'target'
     except pd.errors.EmptyDataError:
         print(f'Empty DataFrame -> {entity_fn}. Skipping')
         return []
-    target_entities = entities[entities['source'] == 'target'].to_dict('records')
+    target_entities = entities[entities['source'] == target_val].to_dict('records')
     if cat2ents is None:
-        source_entities = entities[entities['source'] == 'input'].to_dict('records')
+        source_entities = entities[entities['source'] == input_val].to_dict('records')
         cat2ents_raw = defaultdict(set)
         for ent in source_entities:
             cat2ents_raw[ent['category']].add(ent['text'])
@@ -117,6 +126,7 @@ def perform_swaps(record, entity_dir, swap_rates, cat2ents=None):
                 numbers_swapped = 0
                 print(f'Failed to swap numbers for {uuid}')
             row['sample_idx'] = sample_idx
+            row['candidate_idx'] = cand_idx
             row['ents_swapped'] = ents_swapped
             row['swap_rate'] = swap_rate
             row['numbers_swapped'] = numbers_swapped
@@ -138,10 +148,30 @@ if __name__ == '__main__':
     parser.add_argument('--num_cpus', default=1, type=int)
     parser.add_argument('--swap_rates', default='0.5,1.0')
     parser.add_argument('--samples_per_bucket', default=10, type=int)
-    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
-    parser.add_argument('--target_errors', default='extrinsic', choices=['intrinsic', 'extrinsic'])
+    parser.add_argument('--dataset', default='chemistry', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--target_errors', default='intrinsic', choices=['intrinsic', 'extrinsic'])
+    parser.add_argument('--max_cat_swap_candidates', default=1000, type=int)
 
     args = parser.parse_args()
+
+    cat2ents = None
+    if args.target_errors == 'extrinsic':
+        inventory_fn = os.path.join(args.data_dir, args.dataset, 'entity_inventory.json')
+        print(f'Loading inventory from {inventory_fn}')
+        with open(inventory_fn, 'r') as fd:
+            cat2ents_full = ujson.load(fd)
+
+        cat2_ents = {}
+        for k, v in cat2ents_full.items():
+            text = v['text']
+            prob = v['probability']
+            cat_n = len(text)
+            trunc_idx = min(cat_n, args.max_cat_swap_candidates)
+            text = text[:trunc_idx]
+            prob = prob[:trunc_idx]
+            full_sum = sum(prob)
+            prob = [x / full_sum for x in prob]
+            cat2_ents[k] = {'text': text, 'probability': prob}
 
     args.swap_rates = list(map(float, args.swap_rates.split(',')))
     data = data_loader(args.dataset, contrast_subsample=True)
@@ -159,13 +189,6 @@ if __name__ == '__main__':
     out_fn = os.path.join(args.data_dir, args.dataset, f'{args.target_errors}_swaps.csv')
     print(f'Processing {n}/{prev_n} complete records')
 
-    cat2ents = None
-    if args.target_errors == 'extrinsic':
-        inventory_fn = os.path.join(args.data_dir, args.dataset, 'entity_inventory.json')
-        print(f'Loading inventory from {inventory_fn}')
-        with open(inventory_fn, 'r') as fd:
-            cat2ents = ujson.load(fd)
-
     if args.num_cpus > 1:
         outputs = list(itertools.chain(*list(p_uimap(
             lambda record: perform_swaps(record, entity_dir, args.swap_rates, cat2ents=cat2ents), filtered_data,
@@ -178,7 +201,5 @@ if __name__ == '__main__':
         ))))
 
     outputs = pd.DataFrame(outputs)
-    # if existing_df is not None:
-    #     outputs = pd.concat([existing_df, outputs])
     print(f'Saving {len(outputs)} outputs to {out_fn}')
     outputs.to_csv(out_fn, index=False)

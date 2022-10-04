@@ -9,7 +9,7 @@ from abstract.eval.utils import get_batch_ranges
 class BertScoreWrapper:
     def __init__(self, num_process=1, batch_size=128, device='cuda:0'):
         self.bertscore = load(
-            'bertscore', 
+            'bertscore',
             batch_size=batch_size,
             num_process=num_process,
             device=device,
@@ -30,7 +30,7 @@ class BertScoreWrapper:
             })
         return outputs
 
-    def top_k_sents(self, candidates, source_order, max_tokens=2048):
+    def top_k_sents(self, candidates, source_order, max_tokens=1024):
         output_idxs = []
         tokens_so_far = 0
         for idx in source_order:
@@ -47,16 +47,18 @@ class BertScoreWrapper:
     def compute_full(self, predictions, references, sources, source_is_trunc=False):
         batch_size = len(predictions)
         ref_outputs = self.compute(predictions=predictions, references=references, prefix='_ref')
-
+        # Assumes source has already been split into sentences if each source is a list of strings rather than a string
         if type(sources[0]) == list:
-            source_sents = sources  # Assumes source has already been split into sentences if each source is a list of strings rather than a string
+            source_sents = sources
         else:
             source_sents = list(map(sent_tokenize, sources))
 
         if source_is_trunc:
             trunc_sources = sources
         else:
-            trunc_sources = list(map(lambda idx: '\n'.join(self.top_k_sents(source_sents[idx], references[idx])), range(batch_size)))
+            trunc_sources = list(map(
+                lambda idx: '\n'.join(self.top_k_sents(source_sents[idx], references[idx])), range(batch_size)
+            ))
         outputs = self.compute(predictions=predictions, references=trunc_sources, prefix='_src')
 
         for i in range(len(outputs)):
@@ -68,7 +70,11 @@ class BertScoreWrapper:
         for x in batch:
             ids.append(x[id_col])
 
-        trunc_sources = list(map(lambda idx: '\n'.join(self.top_k_sents(batch[idx]['source_sents'], batch[idx]['source_sent_alignment'])), range(len(batch))))
+        trunc_sources = list(map(
+            lambda idx: '\n'.join(
+                self.top_k_sents(batch[idx]['source_sents'], batch[idx]['source_sent_alignment'])),
+            range(len(batch))
+        ))
         predictions_dup = []
         for x in batch:
             predictions_dup.extend([x['prediction']] * 2)
