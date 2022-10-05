@@ -1,4 +1,3 @@
-import ujson
 import os
 from glob import glob
 
@@ -117,14 +116,16 @@ def prepare(record, orig_data, uuid_cache=None, include_tokens=True, include_sou
     return outputs
 
 
+def single_frac(record):
+    frag_obj = parse_extractive_fragments(record['source_tokens'], record['prediction_tokens'], remove_stop=False)
+    frag_obj.pop('fragments')
+    row = {'temp_id': record['temp_id'], 'num_prediction_tokens': len(record['prediction_tokens'])}
+    row.update(frag_obj)
+    return row
+
+
 def _compute_extractive_frags(records, queue=None):
-    outputs = []
-    for record in tqdm(records, total=len(records), desc='Extractive Fragments'):
-        frag_obj = parse_extractive_fragments(record['source_tokens'], record['prediction_tokens'], remove_stop=False)
-        frag_obj.pop('fragments')
-        row = {'temp_id': record['temp_id'], 'num_prediction_tokens': len(record['prediction_tokens'])}
-        row.update(frag_obj)
-        outputs.append(row)
+    outputs = list(p_uimap(lambda record: single_frac(record), records, num_cpus=0.5))
     if queue is None:
         return outputs
     queue.put(outputs)
@@ -223,7 +224,7 @@ def run_single_metric(records, bartscore_hf_model, bartscore_path, uuid2data, me
         metric_outputs = bert_scorer.compute_batch(eval_inputs)
     elif metric == 'bart_score':
         print('Initializing BartScore')
-        bart_scorer = LikelihoodWrapper(hf_model=bartscore_hf_model, model_path=bartscore_path)
+        bart_scorer = LikelihoodWrapper(hf_config=bartscore_hf_model, model_path=bartscore_path)
         metric_outputs = bart_scorer.compute_batch(eval_inputs)
         bart_scorer.cleanup()
     elif metric == 'extractive_fragments':
@@ -256,11 +257,10 @@ if __name__ == '__main__':
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
     parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('--fp', default='weights/primera_final/results/predictions.csv')
-    parser.add_argument('--num_chunks', default=3, type=int)
-    parser.add_argument('--chunk_idx', default=None, type=int)
     parser.add_argument('--mode', default='evaluate', choices=['evaluate', 'merge_chunks', 'merge_metrics', 'to_table'])
     parser.add_argument('-erase_after_merge', default=False, action='store_true')
     parser.add_argument('--metric', default=None, choices=METRICS)
+    parser.add_argument('-overwrite', default=False, action='store_true')
 
     args = parser.parse_args()
 
@@ -271,6 +271,14 @@ if __name__ == '__main__':
         bartscore_path = os.path.join(args.data_dir, args.dataset, 'clinical_bart_score.ckpt')
         bartscore_hf_model = 'longformer'
     prediction_fn = os.path.join(args.data_dir, args.fp)
+    metric_suffix = 'metrics' if args.metric is None else args.metric
+    out_fn = prediction_fn.replace('.csv', '') + f'_with_{metric_suffix}.csv'
+
+    if os.path.exists(out_fn):
+        print(f'Metric outfile already exists -> {out_fn}')
+        if not args.overwrite:
+            print('Exiting. Must run with -overwrite to re-run this evaluation.')
+            exit(0)
 
     if args.mode == 'to_table':
         df = pd.read_csv(prediction_fn)
@@ -331,6 +339,13 @@ if __name__ == '__main__':
         df_to_table(merged)
         exit(0)
 
+    print(f'Loading in predictions from {prediction_fn}')
+    predict_df = pd.read_csv(prediction_fn).sort_values(by='uuid')
+    predict_df.dropna(subset=['prediction', 'uuid'], inplace=True)
+
+    predict_df = predict_df.assign(temp_id=list(range(len(predict_df))))
+    records = predict_df.to_dict('records')
+
     data = data_loader(args.dataset, contrast_subsample=False)
     uuid2data = {}
     for split, split_data in data.items():
@@ -339,20 +354,6 @@ if __name__ == '__main__':
                 input = linearize_sections(record['sections'])
                 record['input'] = input
             uuid2data[record['uuid']] = record
-
-    print(f'Loading in predictions from {prediction_fn}')
-    predict_df = pd.read_csv(prediction_fn).sort_values(by='uuid')
-    predict_df.dropna(subset=['prediction', 'uuid'], inplace=True)
-
-    if args.chunk_idx is None:
-        chunk_df = predict_df
-        chunk_suffix = ''
-    else:
-        chunk_df = np.array_split(predict_df, args.num_chunks)[args.chunk_idx]
-        chunk_suffix = '_' + str(args.chunk_idx) + '_' + str(args.num_chunks)
-
-    chunk_df = chunk_df.assign(temp_id=list(range(len(chunk_df))))
-    records = chunk_df.to_dict('records')
 
     if args.metric is None:
         augmented_records = run_in_parallel(
@@ -367,8 +368,6 @@ if __name__ == '__main__':
     augmented_df = pd.DataFrame(augmented_records)
     n = len(augmented_df)
 
-    metric_suffix = 'metrics' if args.metric is None else args.metric
-    out_fn = prediction_fn.replace('.csv', '') + f'_with_{metric_suffix}{chunk_suffix}.csv'
     if 'AMLT_OUTPUT_DIR' in os.environ and os.environ['AMLT_OUTPUT_DIR'] is not None:
         out_dir = os.environ['AMLT_OUTPUT_DIR']
         os.makedirs(out_dir, exist_ok=True)

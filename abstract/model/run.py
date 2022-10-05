@@ -257,7 +257,7 @@ class CustomWandBTracker(GeneralTracker):
                 The run step. If included, the log will be affiliated with this step.
         """
         self.run.log(values, step=step)
-        logger.info("Successfully logged to WandB")
+        logger.info(f"Successfully logged to WandB for step={step}")
 
     def finish(self):
         """
@@ -294,6 +294,7 @@ def parse_args():
     parser.add_argument(
         "--overwrite_cache", type=bool, default=None, help="Overwrite the cached training and evaluation sets"
     )
+    parser.add_argument('-use_deepspeed', default=False, action='store_true')
     parser.add_argument(
         "--max_target_length",
         type=int,
@@ -713,10 +714,11 @@ def main():
         assert len(contrast_np) == 0
 
     optimizer = torch.optim.AdamW(optimizer_grouped_parameters)
-    # from deepspeed.ops.adam import DeepSpeedCPUAdam
-    # optimizer = DeepSpeedCPUAdam(optimizer_grouped_parameters)
-
-    # optimizer = torch.optim.AdamW(optimizer_grouped_parameters)
+    if args.use_deepspeed:
+        from deepspeed.ops.adam import DeepSpeedCPUAdam
+        optimizer = DeepSpeedCPUAdam(optimizer_grouped_parameters)
+    else:
+        optimizer = torch.optim.AdamW(optimizer_grouped_parameters)
 
     # Scheduler and math around the number of training steps.
     num_update_steps_per_epoch = math.ceil(len(train_dataloader) / args.gradient_accumulation_steps)
@@ -1008,11 +1010,17 @@ def main():
         result, _ = run_validation(steps=1)
         accelerator.log(result, step=0)
         logger.info(result)
-    logger.info(f'Starting epoch {starting_epoch}/{args.num_train_epochs}')
+    logger.info(f'Starting at epoch {starting_epoch}/{args.num_train_epochs}')
+    is_done = False
     for epoch in range(starting_epoch, args.num_train_epochs):
         model.train()
         last_n_losses = []
+        logger.info(f'Starting epoch {epoch} now...')
         for step, batch in enumerate(train_dataloader):
+            if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
+                progress_bar.update(1)
+                completed_steps += 1
+
             contrast_labels = None
             if args.contrast:
                 batch, contrast_batch = batch
@@ -1061,8 +1069,6 @@ def main():
                 optimizer.step()
                 lr_scheduler.step()
                 optimizer.zero_grad()
-                progress_bar.update(1)
-                completed_steps += 1
                 if completed_steps % args.log_every_n_steps == 0:
                     accelerator.log({'train/loss': np.mean(last_n_losses)}, step=completed_steps)
                     if args.contrast:
@@ -1083,7 +1089,7 @@ def main():
 
                             step_fn = os.path.join(ckpt_dir, 'step.json')
                             with open(step_fn, 'w') as fd:
-                                ujson.dump({'step': step, 'completed_step': completed_steps}, fd)
+                                ujson.dump({'step': step, 'completed_step': completed_steps, 'epoch': epoch}, fd)
 
                             min_val_loss = monitor_val
                             with open(os.path.join(args.output_dir, 'best_results.json'), "w") as f:
@@ -1098,8 +1104,13 @@ def main():
                                 )
 
             if completed_steps >= args.max_train_steps:
-                logger.info(f'Completed {completed_steps}/{args.max_train_steps} steps. Breaking out of training loop now.')
+                logger.info(
+                    f'Completed {completed_steps}/{args.max_train_steps} steps. Breaking out of training loop now.'
+                )
+                is_done = True
                 break
+        if is_done:
+            break
     result, loss_keys = run_validation()
     accelerator.log(result, step=step)
     monitor_val = np.mean([result[k] for k in loss_keys])

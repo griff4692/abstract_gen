@@ -11,7 +11,7 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to Generate Paraphrases of Abstracts')
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
     parser.add_argument('--mode', default='annotations')
-    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--dataset', default='clinical', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('--num_to_annotate', default=10, type=int)
 
     args = parser.parse_args()
