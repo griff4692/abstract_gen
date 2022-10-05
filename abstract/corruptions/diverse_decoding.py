@@ -66,8 +66,8 @@ def compute_rouge(metric, reference, prediction, rouge_types=None):
     return result
 
 
-def merge_chunks(args, output_dir):
-    out_fn = os.path.join(output_dir, f'{args.split}_predictions.csv')
+def merge_chunks(split, output_dir):
+    out_fn = os.path.join(output_dir, f'{split}_predictions.csv')
     chunk_pattern = os.path.join(output_dir, 'predictions_*.csv')
     print(f'Searching for files matching {chunk_pattern}...')
     chunk_fns = list(glob(chunk_pattern))
@@ -83,60 +83,24 @@ def merge_chunks(args, output_dir):
     merged.sort_values(by='uuid').reset_index(drop=True).to_csv(out_fn, index=False)
 
 
-def generate(args, experiment_dir, output_dir, verbose=True):
-    # Either PRIMERA (LED) or T5
-    is_t5 = args.hf_model.lower() == 't5'
-    args.hf_path = T5_MODEL if is_t5 else PRIMERA_MODEL
-    model_constructor = LongT5ForConditionalGeneration if is_t5 else LEDForConditionalGeneration
-    tokenizer_constructor = T5Tokenizer if is_t5 else AutoTokenizer
-    args.max_source_length = 4096
-    args.max_target_length = 1024
-    data_prefix = 't5' if is_t5 else 'primera'
-    data_path = os.path.join(DATA_DIR, 'abstract', f'{data_prefix}_splits')
-
-    if 'AMLT_OUTPUT_DIR' in os.environ and os.environ['AMLT_OUTPUT_DIR'] is not None:
-        singularity_out = os.environ['AMLT_OUTPUT_DIR']
-        print(f'Running on singularity. Saving results to {singularity_out} instead of {output_dir}')
-        output_dir = os.environ['AMLT_OUTPUT_DIR']
-        os.makedirs(output_dir, exist_ok=True)
-
-    ckpt_dir = os.path.join(experiment_dir, 'best_ckpt')
-    tokenizer_dir = os.path.join(experiment_dir, 'tokenizer')
-
-    print(f'Loading config from {args.hf_path}')
-    config = AutoConfig.from_pretrained(args.hf_path)
-    print(f'Loading tokenizer from {tokenizer_dir}')
-
-    tokenizer = tokenizer_constructor.from_pretrained(tokenizer_dir)
-
-    config.vocab_size = len(tokenizer)
-    print(f'Loading model from {ckpt_dir}')
-
-    model = model_constructor.from_pretrained(ckpt_dir, from_tf=False, config=config).to(args.device).eval()
-    model.resize_token_embeddings(len(tokenizer))
-    if args.hf_model == 'primera':
-        model = model.half()
-
-    print(f'Loading custom dataset from {data_path}')
-    data_fn = os.path.join(DATA_DIR, args.dataset, f'{args.hf_model}_splits')
-    dataset = load_from_disk(data_fn)[args.split]
-    if args.split == 'train':
+def generate(args, split, split_dataset, model, tokenizer, output_dir, verbose=True):
+    if split == 'train' and args.dataset != 'clinical':
         uuid_fn = os.path.join(DATA_DIR, args.dataset, 'contrast_uuids.csv')
         uuids = pd.read_csv(uuid_fn)
         uuids_to_keep = set(uuids[uuids['split'] == 'train']['uuid'])
-        idxs_to_keep = [i for i, uuid in enumerate(dataset['uuid']) if uuid in uuids_to_keep]
+        idxs_to_keep = [i for i, uuid in enumerate(split_dataset['uuid']) if uuid in uuids_to_keep]
         print(f'Filtering for the {len(idxs_to_keep)} UUIDs in the train contrast sample subset...')
-        dataset = dataset.select(idxs_to_keep)
+        split_dataset = split_dataset.select(idxs_to_keep)
 
-    if len(dataset) > args.max_examples:
+    if len(split_dataset) > args.max_examples:
         np.random.seed(1992)
-        train_idxs = np.arange(len(dataset))
-        np.random.shuffle(train_idxs)
-        print(f'Subsampling {args.max_examples}/{len(dataset)}')
-        idx_to_keep = train_idxs[:args.max_examples]
-        dataset_subset = dataset.select(idx_to_keep)
+        idxs = np.arange(len(split_dataset))
+        np.random.shuffle(idxs)
+        print(f'Subsampling {args.max_examples}/{len(split_dataset)}')
+        idx_to_keep = idxs[:args.max_examples]
+        dataset_subset = split_dataset.select(idx_to_keep)
     else:
-        dataset_subset = dataset
+        dataset_subset = split_dataset
 
     chunk_suffix = ''
     if args.chunk_idx is not None:
@@ -167,7 +131,7 @@ def generate(args, experiment_dir, output_dir, verbose=True):
         shuffle=False,
         batch_size=args.batch_size,
         collate_fn=data_collator,
-        num_workers=8
+        num_workers=10
     )
 
     # Metric
@@ -272,12 +236,12 @@ if __name__ == '__main__':
     parser.add_argument('--hf_model', default='primera', choices=['primera', 't5'])
     parser.add_argument('--experiment', default='primera')  # WandB name
     parser.add_argument('--num_candidates', default=10, type=int)
-    parser.add_argument('--batch_size', default=8, type=int)
+    parser.add_argument('--batch_size', default=4, type=int)
     parser.add_argument('--device', default=0, type=int)
     parser.add_argument('--chunk_idx', default=None, type=int)
-    parser.add_argument('--num_chunks', default=5, type=int)
+    parser.add_argument('--num_chunks', default=10, type=int)
     parser.add_argument('--max_examples', default=50000, type=int)
-    parser.add_argument('--split', default='train')
+    parser.add_argument('--splits', default='train,validation')
     parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('-overwrite', default=False, action='store_true')
 
@@ -287,12 +251,53 @@ if __name__ == '__main__':
 
     weight_dir = os.path.join(DATA_DIR, 'weights')
     experiment_dir = os.path.join(weight_dir, args.experiment)
-    output_dir = os.path.join(experiment_dir, 'results', f'diverse_decoding_{args.split}')
-    os.makedirs(output_dir, exist_ok=True)
-    print(f'Saving all outputs to {output_dir}')
-
     if args.mode == 'merge_chunks':
-        merge_chunks(args, output_dir)
-    else:
+        for split in args.splits.split(','):
+            output_dir = os.path.join(experiment_dir, 'results', f'diverse_decoding_{split}')
+            merge_chunks(split, output_dir)
+        exit(0)
+
+    # Either PRIMERA (LED) or T5
+    is_t5 = args.hf_model.lower() == 't5'
+    args.hf_path = T5_MODEL if is_t5 else PRIMERA_MODEL
+    model_constructor = LongT5ForConditionalGeneration if is_t5 else LEDForConditionalGeneration
+    tokenizer_constructor = T5Tokenizer if is_t5 else AutoTokenizer
+    args.max_source_length = 4096
+    args.max_target_length = 512
+    data_prefix = 't5' if is_t5 else 'primera'
+    data_path = os.path.join(DATA_DIR, 'abstract', f'{data_prefix}_splits')
+
+    # if 'AMLT_OUTPUT_DIR' in os.environ and os.environ['AMLT_OUTPUT_DIR'] is not None:
+    #     singularity_out = os.environ['AMLT_OUTPUT_DIR']
+    #     print(f'Running on singularity. Saving results to {singularity_out} instead of {output_dir}')
+    #     output_dir = os.environ['AMLT_OUTPUT_DIR']
+    #     os.makedirs(output_dir, exist_ok=True)
+
+    ckpt_dir = os.path.join(experiment_dir, 'best_ckpt')
+    tokenizer_dir = os.path.join(experiment_dir, 'tokenizer')
+
+    print(f'Loading config from {args.hf_path}')
+    config = AutoConfig.from_pretrained(args.hf_path)
+    print(f'Loading tokenizer from {tokenizer_dir}')
+
+    tokenizer = tokenizer_constructor.from_pretrained(tokenizer_dir)
+
+    config.vocab_size = len(tokenizer)
+    print(f'Loading model from {ckpt_dir}')
+
+    model = model_constructor.from_pretrained(ckpt_dir, from_tf=False, config=config).to(args.device).eval()
+    model.resize_token_embeddings(len(tokenizer))
+    if args.hf_model == 'primera':
+        model = model.half()
+
+    print(f'Loading custom dataset from {data_path}')
+    data_fn = os.path.join(DATA_DIR, args.dataset, f'{args.hf_model}_splits')
+    dataset = load_from_disk(data_fn)
+
+    for split in args.splits.split(','):
+        split_data = dataset[split]
+        output_dir = os.path.join(experiment_dir, 'results', f'diverse_decoding_{split}')
+        os.makedirs(output_dir, exist_ok=True)
+        print(f'Saving all outputs to {output_dir}')
         assert args.mode == 'generate'
-        generate(args, experiment_dir, output_dir)
+        generate(args, split, split_data, model, tokenizer, output_dir)

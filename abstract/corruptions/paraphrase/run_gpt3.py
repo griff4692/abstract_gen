@@ -73,7 +73,7 @@ if __name__ == '__main__':
     os.makedirs(out_dir, exist_ok=True)
 
     dataset = data_loader(args.dataset, contrast_subsample=True)
-    annotations_fn = os.path.join(CWD, 'annotations.txt')
+    annotations_fn = os.path.join(args.data_dir, args.dataset, 'paraphrase', 'annotations.txt')
     with open(annotations_fn, 'r') as fd:
         paraphrase_annotations = fd.readlines()
 

@@ -13,10 +13,12 @@ if __name__ == '__main__':
     parser.add_argument('--mode', default='annotations')
     parser.add_argument('--dataset', default='clinical', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('--num_to_annotate', default=10, type=int)
+    parser.add_argument('--max_tokens', default=256, type=int)
 
     args = parser.parse_args()
 
     summaries = data_loader(args.dataset, contrast_subsample=False)['validation']['target']
+    summaries = [x for x in summaries if len(x.split(' ')) < args.max_tokens]
 
     para_dir = os.path.join(args.data_dir, args.dataset, 'paraphrase')
     os.makedirs(para_dir, exist_ok=True)

@@ -111,7 +111,7 @@ class LikelihoodWrapper:
                 labels[labels == self.tokenizer.pad_token_id] = -100
                 model_inputs['labels'] = labels
 
-                if {'led', 'primera'} in self.hf_config:
+                if 'led' in self.hf_config or 'primera' in self.hf_config:
                     # print(f'Adding global attention masks')
                     add_global_attention_mask(model_inputs)
 

@@ -1004,6 +1004,7 @@ def main():
         tokenizer.save_pretrained(tokenizer_dir)
 
     ckpt_dir = os.path.join(args.output_dir, 'best_ckpt')
+    last_dir = os.path.join(args.output_dir, 'last_ckpt')
 
     # Sanity check the validation steps
     if not args.debug:
@@ -1102,7 +1103,9 @@ def main():
                                     },
                                     f,
                                 )
-
+                    else:
+                        logger.info(
+                            f'Validation loss did not improve: from {min_val_loss} to {monitor_val}. Not saving.')
             if completed_steps >= args.max_train_steps:
                 logger.info(
                     f'Completed {completed_steps}/{args.max_train_steps} steps. Breaking out of training loop now.'
@@ -1114,27 +1117,23 @@ def main():
     result, loss_keys = run_validation()
     accelerator.log(result, step=step)
     monitor_val = np.mean([result[k] for k in loss_keys])
-    if monitor_val <= min_val_loss:
-        logger.info(f'Validation loss improved from {min_val_loss} to {monitor_val}.  Saving weights to {ckpt_dir}')
-        if not args.debug:
-            os.makedirs(ckpt_dir, exist_ok=True)
-            accelerator.save_state(ckpt_dir)
-
-            step_fn = os.path.join(ckpt_dir, 'step.json')
-            with open(step_fn, 'w') as fd:
-                ujson.dump({'step': step, 'completed_step': completed_steps}, fd)
-
-            min_val_loss = monitor_val
-            with open(os.path.join(args.output_dir, 'best_results.json'), "w") as f:
-                json.dump(
-                    {
-                        "eval_rouge1": result["validation/rouge1"],
-                        "eval_rouge2": result["validation/rouge2"],
-                        "eval_rougeL": result["validation/rougeL"],
-                        "eval_rougeLsum": result["validation/rougeLsum"],
-                    },
-                    f,
-                )
+    logger.info(f'Final validation loss from {min_val_loss} to {monitor_val}. Saving weights to {ckpt_dir}')
+    if not args.debug:
+        os.makedirs(last_dir, exist_ok=True)
+        accelerator.save_state(last_dir)
+        step_fn = os.path.join(last_dir, 'step.json')
+        with open(step_fn, 'w') as fd:
+            ujson.dump({'step': step, 'completed_step': completed_steps}, fd)
+        with open(os.path.join(args.output_dir, 'last_results.json'), "w") as f:
+            json.dump(
+                {
+                    "eval_rouge1": result["validation/rouge1"],
+                    "eval_rouge2": result["validation/rouge2"],
+                    "eval_rougeL": result["validation/rougeL"],
+                    "eval_rougeLsum": result["validation/rougeLsum"],
+                },
+                f,
+            )
     if not args.skip_inference:
         args.batch_size = 16  # For inference
         args.max_test_examples = 10000
