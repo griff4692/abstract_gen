@@ -3,6 +3,7 @@ import regex as re
 import os
 from time import sleep
 CWD = os.path.dirname(__file__)
+from glob import glob
 
 import openai
 import argparse
@@ -23,6 +24,23 @@ def build_prompt(abstract, annotated_abstracts, summary_name='abstract'):
         prompt += orig.strip() + '=>' + choice(human).strip() + '\n\n'
     prompt += abstract + '=>'
     return prompt
+
+
+def merge_chunks(output_dir, save_dir):
+    out_fn = os.path.join(save_dir, 'predictions.csv')
+    chunk_pattern = os.path.join(output_dir, '*.csv')
+    print(f'Searching for files matching {chunk_pattern}...')
+    chunk_fns = list(glob(chunk_pattern))
+    print(f'Found {len(chunk_fns)} matching files')
+    merged = []
+    for fn in tqdm(chunk_fns):
+        try:
+            merged.append(pd.read_csv(fn))
+        except:
+            print(f'Could not parse file {fn}')
+    merged = pd.concat(merged)
+    print(f'Saving {len(merged)} outputs to {out_fn}')
+    merged.sort_values(by='uuid').reset_index(drop=True).to_csv(out_fn, index=False)
 
 
 def clean_uuid(uuid):
@@ -64,11 +82,17 @@ if __name__ == '__main__':
     parser.add_argument('--few_shot_n', default=1, type=int)
     parser.add_argument('--num_candidates', default=5, type=int)
     parser.add_argument('--max_tokens', default=512, type=int)
+    parser.add_argument('--mode', default='generate', choices=['generate', 'merge'])
 
     args = parser.parse_args()
 
+    save_dir = os.path.join(args.data_dir, args.dataset, 'paraphrase')
     out_dir = os.path.join(args.data_dir, args.dataset, 'paraphrase', 'gpt')
     os.makedirs(out_dir, exist_ok=True)
+
+    if args.mode == 'merge_chunks':
+        merge_chunks(out_dir, save_dir)
+        exit(0)
 
     annotations_fn = os.path.join(args.data_dir, args.dataset, 'paraphrase', 'annotations.txt')
     with open(annotations_fn, 'r') as fd:
@@ -109,8 +133,10 @@ if __name__ == '__main__':
 
             output_df = pd.DataFrame([
                 {
-                    'uuid': record['uuid'], 'split': split, 'abstract': record['abstract'],
+                    'uuid': record['uuid'], 'split': split, 'target': record['target'],
                     'prediction': p, 'paraphrase_idx': i
                 } for i, p in enumerate(paraphrases)
             ])
             output_df.to_csv(out_fn, index=False)
+
+    merge_chunks(out_dir, save_dir)
