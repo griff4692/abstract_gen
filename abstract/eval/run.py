@@ -350,9 +350,6 @@ if __name__ == '__main__':
     uuid2data = {}
     for split, split_data in data.items():
         for record in split_data:
-            if args.dataset == 'chemistry':
-                input = linearize_sections(record['sections'])
-                record['input'] = input
             uuid2data[record['uuid']] = record
 
     if args.metric is None:

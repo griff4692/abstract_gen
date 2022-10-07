@@ -301,3 +301,4 @@ if __name__ == '__main__':
         print(f'Saving all outputs to {output_dir}')
         assert args.mode == 'generate'
         generate(args, split, split_data, model, tokenizer, output_dir)
+        merge_chunks(split, output_dir)

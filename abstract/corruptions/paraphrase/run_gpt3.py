@@ -7,9 +7,7 @@ CWD = os.path.dirname(__file__)
 import openai
 import argparse
 import pandas as pd
-import ujson
 from tqdm import tqdm
-import numpy as np
 from random import choice
 
 openai.api_key = os.getenv('OPENAI_API_KEY')
