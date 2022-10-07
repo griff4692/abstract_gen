@@ -17,8 +17,8 @@ assert len(openai.api_key) > 0
 from abstract.preprocess.preprocess import data_loader
 
 
-def build_prompt(abstract, annotated_abstracts):
-    prompt = 'Paraphrase this abstract.\n\n'
+def build_prompt(abstract, annotated_abstracts, summary_name='abstract'):
+    prompt = f'Paraphrase this {summary_name}.\n\n'
     for orig, human in annotated_abstracts:
         prompt += orig.strip() + '=>' + choice(human).strip() + '\n\n'
     prompt += abstract + '=>'
@@ -37,10 +37,10 @@ def is_incomplete(record, out_dir):
     return not os.path.exists(out_fn)
 
 
-def paraphrase_with_gpt(args, record, annotated_abstracts):
+def paraphrase_with_gpt(args, record, annotated_abstracts, summary_name):
     few_shot_examples = list(itertools.combinations(list(range(len(annotated_abstracts))), args.few_shot_n))
     sampled_example_set = [annotated_abstracts[i] for i in few_shot_examples[choice(range(len(few_shot_examples)))]]
-    prompt = build_prompt(record['abstract'], sampled_example_set)
+    prompt = build_prompt(record['abstract'], sampled_example_set, summary_name=summary_name)
 
     response = openai.Completion.create(
         model='text-davinci-002',
@@ -59,7 +59,7 @@ def paraphrase_with_gpt(args, record, annotated_abstracts):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to process extract entities')
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
-    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--dataset', default='clinical', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('-overwrite', default=False, action='store_true')
     parser.add_argument('--few_shot_n', default=1, type=int)
     parser.add_argument('--num_candidates', default=5, type=int)
@@ -70,18 +70,21 @@ if __name__ == '__main__':
     out_dir = os.path.join(args.data_dir, args.dataset, 'paraphrase', 'gpt')
     os.makedirs(out_dir, exist_ok=True)
 
-    dataset = data_loader(args.dataset, contrast_subsample=True)
     annotations_fn = os.path.join(args.data_dir, args.dataset, 'paraphrase', 'annotations.txt')
     with open(annotations_fn, 'r') as fd:
         paraphrase_annotations = fd.readlines()
+        paraphrase_annotations = [x.strip() for x in paraphrase_annotations if len(x.strip()) > 0]
 
     paraphrase_annotation_tuples = []
+    summary_name = 'Summary' if args.dataset == 'clinical' else 'Abstract'
     for idx in range(len(paraphrase_annotations)):
-        if paraphrase_annotations[idx].startswith('Abstract:'):
-            paraphrase_annotation_tuples.append([paraphrase_annotations[idx].replace('Abstract:', ''), []])
+        if paraphrase_annotations[idx].startswith(f'{summary_name}:'):
+            paraphrase_annotation_tuples.append([paraphrase_annotations[idx].replace(f'{summary_name}:', ''), []])
         else:
             assert 'Paraphrase:' in paraphrase_annotations[idx]
             paraphrase_annotation_tuples[-1][1].append(paraphrase_annotations[idx].replace('Paraphrase:', ''))
+
+    dataset = data_loader(args.dataset, contrast_subsample=True)
 
     for split, data in dataset.items():
         prev_n = len(data)
@@ -94,11 +97,11 @@ if __name__ == '__main__':
             uuid_clean = clean_uuid(uuid)
             out_fn = os.path.join(out_dir, f'{uuid_clean}.csv')
             try:
-                paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples)
+                paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples, summary_name)
             except openai.error.RateLimitError:
                 print('Rate limit exceeded. Sleeping for a minute and re-trying.')
                 sleep(60)
-                paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples)
+                paraphrases = paraphrase_with_gpt(args, record, paraphrase_annotation_tuples, summary_name)
             except openai.error.InvalidRequestError as e:
                 print(e)
                 print('Skipping for now.')
