@@ -13,7 +13,7 @@ from random import choice
 
 openai.api_key = os.getenv('OPENAI_API_KEY')
 print(openai.api_key)
-assert len(openai.api_key) > 0
+# assert len(openai.api_key) > 0
 
 from abstract.preprocess.preprocess import data_loader
 
@@ -58,7 +58,7 @@ def is_incomplete(record, out_dir):
 def paraphrase_with_gpt(args, record, annotated_abstracts, summary_name):
     few_shot_examples = list(itertools.combinations(list(range(len(annotated_abstracts))), args.few_shot_n))
     sampled_example_set = [annotated_abstracts[i] for i in few_shot_examples[choice(range(len(few_shot_examples)))]]
-    prompt = build_prompt(record['abstract'], sampled_example_set, summary_name=summary_name)
+    prompt = build_prompt(record['target'], sampled_example_set, summary_name=summary_name)
 
     response = openai.Completion.create(
         model='text-davinci-002',
@@ -77,7 +77,7 @@ def paraphrase_with_gpt(args, record, annotated_abstracts, summary_name):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to process extract entities')
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
-    parser.add_argument('--dataset', default='clinical', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('-overwrite', default=False, action='store_true')
     parser.add_argument('--few_shot_n', default=1, type=int)
     parser.add_argument('--num_candidates', default=5, type=int)
