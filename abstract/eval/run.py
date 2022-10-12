@@ -15,7 +15,6 @@ import itertools
 from abstract.eval.bertscore import BertScoreWrapper
 from abstract.eval.bartscore import LikelihoodWrapper
 from abstract.eval.extractive_fragments import parse_extractive_fragments
-from abstract.preprocess.preprocess import linearize_sections
 from abstract.corruptions.diverse_decoding import compute_rouge
 from abstract.eval.fact_checker import FactChecker
 from abstract.preprocess.preprocess import data_loader
@@ -25,18 +24,18 @@ import torch.multiprocessing as mp
 # mp.set_start_method('spawn', force=True)
 
 METRICS = ['rouge', 'extractive_fragments', 'bert_score', 'bart_score', 'fact_score']
+METRIC_COLS = list(sorted([
+    'num_prediction_tokens', 'coverage', 'density', 'compression', 'rouge1', 'rouge2', 'rougeL',
+    'bs_src_recall', 'bs_src_precision', 'bs_src_f1', 'bs_ref_recall', 'bs_ref_precision', 'bs_ref_f1',
+    'bart_score', 'fact_score'
+]))
 
 
 def df_to_table(df):
-    metric_cols = list(sorted([
-        'num_prediction_tokens', 'coverage', 'density', 'compression', 'rouge1', 'rouge2', 'rougeL',
-        'bs_src_recall', 'bs_src_precision', 'bs_src_f1', 'bs_ref_recall', 'bs_ref_precision', 'bs_ref_f1',
-        'bart_score', 'fact_score'
-    ]))
     print('Paste into Excel and ensure columns line up')
-    print(','.join(metric_cols))
+    print(','.join(METRIC_COLS))
     output_str = []
-    for col in metric_cols:
+    for col in METRIC_COLS:
         if col not in df:
             val = 'N/A'
         else:
@@ -125,7 +124,7 @@ def single_frac(record):
 
 
 def _compute_extractive_frags(records, queue=None):
-    outputs = list(p_uimap(lambda record: single_frac(record), records, num_cpus=0.5))
+    outputs = list(p_uimap(lambda record: single_frac(record), records, num_cpus=5))
     if queue is None:
         return outputs
     queue.put(outputs)
@@ -269,7 +268,7 @@ if __name__ == '__main__':
         bartscore_hf_model = 'google/pegasus-pubmed'
     else:
         bartscore_path = os.path.join(args.data_dir, args.dataset, 'clinical_bart_score.ckpt')
-        bartscore_hf_model = 'longformer'
+        bartscore_hf_model = 'allenai/led-base-16384'
     prediction_fn = os.path.join(args.data_dir, args.fp)
     metric_suffix = 'metrics' if args.metric is None else args.metric
     out_fn = prediction_fn.replace('.csv', '') + f'_with_{metric_suffix}.csv'

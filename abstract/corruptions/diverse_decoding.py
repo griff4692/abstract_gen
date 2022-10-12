@@ -176,7 +176,7 @@ def generate(args, split, split_dataset, model, tokenizer, output_dir, verbose=T
         if args.hf_model == 'primera':
             add_global_attention_mask(batch)
             gen_kwargs['global_attention_mask'] = batch['global_attention_mask'].to(args.device)
-        with torch.no_grad(), torch.cuda.amp.autocast():
+        with torch.no_grad(), torch.cuda.amp.autocast() if args.hf_model == 'primera' else torch.no_grad():
             generated_tokens = model.generate(
                 batch['input_ids'].to(args.device),
                 attention_mask=batch['attention_mask'].to(args.device),

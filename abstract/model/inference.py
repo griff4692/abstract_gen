@@ -92,10 +92,10 @@ def main(args):
     tokenizer = tokenizer_constructor.from_pretrained(tokenizer_dir)
 
     config.vocab_size = len(tokenizer)
-    config.contrastive_classifier = True  # Can remove if not using margin
+    config.contrastive_classifier = False  # Can remove if not using margin
     print(f'Loading model from {ckpt_dir}')
 
-    model = model_constructor.from_pretrained(ckpt_dir, from_tf=False, config=config).to(0)
+    model = model_constructor.from_pretrained(ckpt_dir, from_tf=False, config=config).to(args.device)
     model.resize_token_embeddings(len(tokenizer))
 
     print(f'Loading custom dataset from {data_path}')
@@ -122,7 +122,8 @@ def main(args):
     )
 
     dataloader = DataLoader(
-        predict_dataset.remove_columns(important_cols), shuffle=False, batch_size=args.batch_size, collate_fn=data_collator
+        predict_dataset.remove_columns(important_cols), shuffle=False, batch_size=args.batch_size,
+        collate_fn=data_collator
     )
 
     # Metric
@@ -149,7 +150,7 @@ def main(args):
         if args.hf_model == 'primera':
             add_global_attention_mask(batch)
             gen_kwargs['global_attention_mask'] = batch['global_attention_mask'].to(args.device)
-        with torch.no_grad(), torch.cuda.amp.autocast():
+        with torch.no_grad(), torch.cuda.amp.autocast() if args.hf_model == 'primera' else torch.no_grad():
             generated_tokens = model.generate(
                 batch['input_ids'].to(args.device),
                 attention_mask=batch['attention_mask'].to(args.device),
@@ -185,8 +186,8 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Inference for summarization models')
 
-    parser.add_argument('--hf_model', default='primera', choices=['primera', 't5'])
-    parser.add_argument('--experiment', default='bs_src_f1_unlikelihood_3_3_max_margin_max_margin_all')  # WandB name
+    parser.add_argument('--hf_model', default='t5', choices=['primera', 't5'])
+    parser.add_argument('--experiment', default='long_t5_ft_pubmed')  # WandB name
     parser.add_argument('--num_beams', default=1, type=int)
     parser.add_argument('--max_test_examples', default=2000, type=int)
     parser.add_argument('--batch_size', default=32, type=int)

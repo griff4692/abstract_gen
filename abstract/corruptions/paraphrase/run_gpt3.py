@@ -13,7 +13,7 @@ from random import choice
 
 openai.api_key = os.getenv('OPENAI_API_KEY')
 print(openai.api_key)
-# assert len(openai.api_key) > 0
+assert len(openai.api_key) > 0
 
 from abstract.preprocess.preprocess import data_loader
 

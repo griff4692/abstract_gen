@@ -5,13 +5,23 @@ import pandas as pd
 import numpy as np
 
 from abstract.preprocess.preprocess import data_loader
+from abstract.eval.run import METRIC_COLS
 
 np.random.seed(1992)  # For reproducibility
+REMOVE_COLS = ['abstract', 'masked_input', 'input', 'source', 'target']
+ENSURE_COLS = ['uuid', 'prediction'] + METRIC_COLS
 
 
 def load_corruption(fn, method, sign='positive'):
     print(f'Loading {method} corruptions from {fn}')
     df = pd.read_csv(fn)
+    for col in ENSURE_COLS:
+        assert col in df.columns
+
+    keep_cols = [col for col in df.columns.tolist() if col not in REMOVE_COLS]
+    removed_cols = [col for col in df.columns.tolist() if col in REMOVE_COLS]
+    removed_str = ', '.join(removed_cols)
+    print(f'Removing {len(removed_cols)} columns: {removed_str}')
     df['method'] = method
     df['sign'] = sign
     print(f'Loaded {len(df)} {method} corruptions from {fn}')
