@@ -212,9 +212,22 @@ def run_single_metric(records, bartscore_hf_model, bartscore_path, uuid2data, me
             record, uuid2data[record['uuid']], uuid_cache, include_tokens=metric=='extractive_fragments',
             include_source=metric != 'rouge'
         )
+
+        if metric == 'extractive_fragments':
+            # We just need the source and prediction tokens
+            # Memory grows if we keep everything
+            row = {
+                'uuid': row['uuid'],
+                'temp_id': row['temp_id'],
+                'source_tokens': row['source_tokens'],
+                'prediction_tokens': row['prediction_tokens'],
+                'num_prediction_tokens': row['num_prediction_tokens']
+            }
+
         if row['uuid'] not in uuid_cache:
             uuid_cache[row['uuid']] = row
         eval_inputs.append(row)
+    del uuid_cache  # Clear up the memory
     print('Done preprocessing...')
 
     if metric == 'bert_score':

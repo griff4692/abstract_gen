@@ -41,7 +41,7 @@ class LikelihoodWrapper:
         config = AutoConfig.from_pretrained(hf_config)
         self.tokenizer = tokenizer_constructor.from_pretrained(hf_config)
         config.vocab_size = len(self.tokenizer)
-        if 'led' in hf_config and model_path is None:  # This is a Pytorch Lightning wrapped HuggingFace model
+        if 'led' in hf_config and model_path is not None:  # This is a Pytorch Lightning wrapped HuggingFace model
             weights = torch.load(model_path)['state_dict']
             led_weights = {k.replace('model.', ''): v for k, v in weights.items()}
             for k, v in weights.items():
