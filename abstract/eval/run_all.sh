@@ -5,7 +5,7 @@ set -e
 DATASET=$1  # "pubmed"
 FP=$2  # '/home/ga2530/data_tmp/pubmed/mask_and_fill/span_fills.csv'
 #METRICS="rouge extractive_fragments bert_score bart_score fact_score"
-METRICS="rouge bert_score bart_score fact_score"
+METRICS="rouge extractive_fragments bert_score bart_score fact_score"
 
 echo $DATASET
 echo $FP

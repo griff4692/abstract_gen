@@ -13,7 +13,8 @@ from random import choice
 
 openai.api_key = os.getenv('OPENAI_API_KEY')
 print(openai.api_key)
-assert len(openai.api_key) > 0
+if openai.api_key is None:
+    print('Need to set env var OPENAI_API_KEY to be able to call GPT-3')
 
 from abstract.preprocess.preprocess import data_loader
 
@@ -90,7 +91,7 @@ if __name__ == '__main__':
     out_dir = os.path.join(args.data_dir, args.dataset, 'paraphrase', 'gpt')
     os.makedirs(out_dir, exist_ok=True)
 
-    if args.mode == 'merge_chunks':
+    if args.mode == 'merge':
         merge_chunks(out_dir, save_dir)
         exit(0)
 
