@@ -447,7 +447,7 @@ def parse_args():
     parser.add_argument('--mixed_methods', default='all')
     parser.add_argument('-use_mixed_methods', default=False, action='store_true')
     parser.add_argument('--negative_methods', default='all')
-    parser.add_argument('--reference_status', default='ensure', choices=['ensure', 'remove', 'positive'])
+    parser.add_argument('--reference_status', default='positive', choices=['ensure', 'remove', 'positive'])
     # For ranking objective
     # Table 13 lambda https://arxiv.org/pdf/2203.16804.pdf this is 0.001
     parser.add_argument('--contrast_rank_margin', default=0.001, type=float)
@@ -965,7 +965,9 @@ def main():
 
                 # Contrast Objective
                 if args.contrast:
-                    cl, cl_stats = contrast_step(outputs, batch['labels'], contrast_labels, contrast_cutoff=args.max_num_positive)
+                    cl, cl_stats = contrast_step(
+                        outputs, batch['labels'], contrast_labels, contrast_cutoff=args.max_num_positive
+                    )
                     for k, v in cl.items():
                         contrast_losses[k].append(v.detach().float().item())
                     for k, v in cl_stats.items():

@@ -628,7 +628,7 @@ class DataCollatorForContrastSeq2Seq:
             else:
                 raise Exception('Not implemented')
             keep_summaries = [reference[0]['prediction']] + summaries[:keep_n]
-        else:
+        elif self.reference_status == 'remove':
             summaries = [x['prediction'] for x in non_ref]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative)
@@ -638,10 +638,26 @@ class DataCollatorForContrastSeq2Seq:
             else:
                 raise Exception('Not implemented')
             keep_summaries = summaries[:keep_n]
-        return list(keep_summaries)
+        else:
+            summaries = [x['prediction'] for x in reference + non_ref]
+            n = len(summaries)
+            keep_n = min(n, self.max_num_positive)
+            # TODO intra sample strategies
+            if self.contrast_sample_strategy == 'random':
+                np.random.shuffle(summaries)
+            else:
+                raise Exception('Not implemented')
+            keep_summaries = summaries[:keep_n]
+        keep_summaries = list(keep_summaries)
+        last = keep_summaries[-1]
+        for _ in range(self.max_num_positive - len(keep_summaries)):
+            keep_summaries.append(last)
+        return keep_summaries
 
     def method_match(self, method, keep_methods):
-       return method in keep_methods or 'all' in keep_methods
+        if type(method) == dict:
+            method = method['method']
+        return method in keep_methods or 'all' in keep_methods
 
     def select_negative(self, cset):
         cset_filt = [x for x in cset if self.method_match(x['method'], self.negative_methods)]
@@ -649,12 +665,15 @@ class DataCollatorForContrastSeq2Seq:
         summaries = [x['prediction'] for x in cset_ordered]
         n = len(summaries)
         keep_n = min(n, self.max_num_negative)
-        keep_summaries = summaries[:keep_n]
         # TODO intra sample strategies
         if self.contrast_sample_strategy == 'random':
-            np.random.shuffle(keep_summaries)
+            np.random.shuffle(summaries)
         else:
             raise Exception('Not implemented')
+        keep_summaries = list(summaries[:keep_n])
+        last = keep_summaries[-1]
+        for _ in range(self.max_num_negative - len(keep_summaries)):
+            keep_summaries.append(last)
         return list(keep_summaries)
 
     def select_hard_set(self, cset):
