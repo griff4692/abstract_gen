@@ -9,6 +9,7 @@ import ujson
 
 from abstract.preprocess.preprocess import data_loader
 from abstract.eval.run import METRIC_COLS
+from abstract.corruptions.validate import move_invalid
 
 
 def clean_uuid(uuid):
@@ -173,3 +174,5 @@ if __name__ == '__main__':
             out_fn = os.path.join(out_dir, split, f'{uuid}.json')
         with open(out_fn, 'w') as fd:
             ujson.dump(records, fd)
+
+    move_invalid(args)

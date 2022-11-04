@@ -425,6 +425,7 @@ def parse_args():
     parser.add_argument('--contrast_metrics', default='faithful')
     parser.add_argument('--max_num_positive', default=3, type=int)
     parser.add_argument('--max_num_negative', default=3, type=int)
+    parser.add_argument('--max_num_rank', default=3, type=int)
     parser.add_argument(
         '--contrast_intra_sample_strategy', default='random',
         choices=[
@@ -443,7 +444,10 @@ def parse_args():
     )
     parser.add_argument('--contrast_weight', default=1.0, type=float)
     parser.add_argument('--positive_methods', default='all')
+    parser.add_argument('--mixed_methods', default='all')
+    parser.add_argument('-use_mixed_methods', default=False, action='store_true')
     parser.add_argument('--negative_methods', default='all')
+    parser.add_argument('--reference_status', default='ensure', choices=['ensure', 'remove', 'positive'])
     # For ranking objective
     # Table 13 lambda https://arxiv.org/pdf/2203.16804.pdf this is 0.001
     parser.add_argument('--contrast_rank_margin', default=0.001, type=float)
@@ -649,15 +653,21 @@ def main():
         logger.info(contrast_metrics)
 
         assert all([x in CONTRAST_METRIC_LIBRARY for x in contrast_metrics])
+
         train_data_collator = DataCollatorForContrastSeq2Seq(
             tokenizer,
             positive_methods=args.positive_methods,
             negative_methods=args.negative_methods,
+            mixed_methods=args.mixed_methods,
+            use_mixed_methods=args.use_mixed_methods,
+            reference_status=args.reference_status,
+            set_type='soft' if args.contrast_objective == 'margin_rank' else 'hard',
             contrast_dir=contrast_dir,
             split='train',
             contrast_metrics=contrast_metrics,
             max_num_positive=args.max_num_positive,
             max_num_negative=args.max_num_negative,
+            max_num_rank=args.max_num_rank,
             max_target_length=args.max_target_length,
             contrast_sample_strategy=args.contrast_intra_sample_strategy,
             model=model,
@@ -669,11 +679,17 @@ def main():
             tokenizer,
             positive_methods=args.positive_methods,
             negative_methods=args.negative_methods,
-            split='validation',
+            mixed_methods=args.mixed_methods,
+            use_mixed_methods=args.use_mixed_methods,
+            reference_status=args.reference_status,
+            set_type='soft' if args.contrast_objective == 'margin_rank' else 'hard',
             contrast_dir=contrast_dir,
+            split='validation',
             contrast_metrics=contrast_metrics,
             max_num_positive=args.max_num_positive,
             max_num_negative=args.max_num_negative,
+            max_num_rank=args.max_num_rank,
+            max_target_length=args.max_target_length,
             contrast_sample_strategy=args.contrast_intra_sample_strategy,
             model=model,
             label_pad_token_id=label_pad_token_id,

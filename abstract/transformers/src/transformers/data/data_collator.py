@@ -552,8 +552,12 @@ class DataCollatorForContrastSeq2Seq:
     tokenizer: PreTrainedTokenizerBase
     positive_methods: List[str]
     negative_methods: List[str]
+    mixed_methods: List[str]
+    use_mixed_methods: bool
+    reference_status: str
     contrast_metrics: List[str]
     model: Optional[Any] = None
+    set_type: Optional[str] = 'hard'
     contrast_dir: str = None
     split: str = 'train'
     metric_mode: str = 'max'
@@ -565,6 +569,7 @@ class DataCollatorForContrastSeq2Seq:
     return_tensors: str = "pt"
     max_num_positive: int = 3
     max_num_negative: int = 3
+    max_num_rank: int = 3
     contrast_sample_strategy: str = 'random'
 
     def subsample(self, arr):
@@ -607,18 +612,14 @@ class DataCollatorForContrastSeq2Seq:
             raise Exception('Please implement me by calling looking up bartscore')
         return [arr[i] for i in np.sort(idxs_to_keep)]
 
-    def select_positive(self, cset, metrics):
-        reference = [x for x in cset if x['method'] == 'reference']
+    def select_positive(self, cset):
+        cset_filt = self.order([x for x in cset if self.method_match(x, self.positive_methods)])
+        reference = [x for x in cset_filt if x['method'] == 'reference']
         assert len(reference) == 1
-        non_ref = [x for x in cset if x['method'] != 'reference']
+        non_ref = [x for x in cset_filt if x['method'] != 'reference']
         assert len(non_ref) > 0
-        if self.positive_methods == 'ensure_reference':
-            for cs in non_ref:
-                cs['sort_key'] = np.mean([cs[metric] for metric in metrics])
-                if self.metric_mode == 'max':
-                    cs['sort_key'] = - cs['sort_key']  # Want larger (better at the front)
-            non_ref_ordered = list(sorted(non_ref, key=lambda x: x['sort_key']))
-            summaries = [x['prediction'] for x in non_ref_ordered]
+        if self.reference_status == 'ensure':
+            summaries = [x['prediction'] for x in non_ref]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative) - 1
             # TODO intra sample strategies
@@ -628,17 +629,7 @@ class DataCollatorForContrastSeq2Seq:
                 raise Exception('Not implemented')
             keep_summaries = [reference[0]['prediction']] + summaries[:keep_n]
         else:
-            if self.positive_methods == 'paraphrase':
-                cset_filt = non_ref
-            else:
-                assert self.positive_methods == 'all'  # Paraphrase is the only positive generation method
-                cset_filt = cset
-            for cs in cset_filt:
-                cs['sort_key'] = np.mean([cs[metric] for metric in metrics])
-                if self.metric_mode == 'max':
-                    cs['sort_key'] = - cs['sort_key']  # Want larger (better at the front)
-            cset_ordered = list(sorted(cset_filt, key=lambda x: x['sort_key']))
-            summaries = [x['prediction'] for x in cset_ordered]
+            summaries = [x['prediction'] for x in non_ref]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative)
             # TODO intra sample strategies
@@ -652,13 +643,9 @@ class DataCollatorForContrastSeq2Seq:
     def method_match(self, method, keep_methods):
        return method in keep_methods or 'all' in keep_methods
 
-    def select_negative(self, cset, metrics):
+    def select_negative(self, cset):
         cset_filt = [x for x in cset if self.method_match(x['method'], self.negative_methods)]
-        for cs in cset_filt:
-            cs['sort_key'] = np.mean([cs[metric] for metric in metrics])
-            if self.metric_mode == 'max':
-                cs['sort_key'] = - cs['sort_key']  # Want larger (better at the front)
-        cset_ordered = list(sorted(cset_filt, key=lambda x: x['sort_key']))
+        cset_ordered = self.order(cset_filt)
         summaries = [x['prediction'] for x in cset_ordered]
         n = len(summaries)
         keep_n = min(n, self.max_num_negative)
@@ -670,14 +657,70 @@ class DataCollatorForContrastSeq2Seq:
             raise Exception('Not implemented')
         return list(keep_summaries)
 
-    def select_set(self, cset):
-        for cs in cset:
-            cs['prediction'] = cs['prediction'].strip()
-        pos = [x for x in cset if x['sign'] == 'positive']
-        neg = [x for x in cset if x['sign'] == 'negative']
-        pos_keep = self.select_positive(pos, self.contrast_metrics)
-        neg_keep = self.select_negative(neg, self.contrast_metrics)
+    def select_hard_set(self, cset):
+        if self.use_mixed_methods:
+            cset_filt = [
+                x for x in cset if self.method_match(x['method'], self.mixed_methods)
+            ]
+            cset_filt_ordered = self.order(cset_filt)
+            if self.contrast_sample_strategy == 'random':
+                mid_pt = len(cset_filt_ordered) // 2
+                pos_candidates = cset_filt_ordered[:mid_pt]
+                neg_candidates = cset_filt_ordered[mid_pt:]
+
+                pos_n = len(pos_candidates)
+                if self.reference_status == 'ensure':
+                    reference = [x for x in cset_filt if x['method'] == 'reference']
+                    assert len(reference) == 1
+                    pos_candidates.insert(0, reference[0])
+                    pos_idx = 0
+                    if self.max_num_positive - 1 > 0:
+                        non_ref_range = np.arange(1, len(pos_n))
+                        pos_idx += list(sorted(np.random.choice(non_ref_range, size=self.max_num_positive - 1, replace=False)))
+                else:
+                    pos_idxs = list(sorted(np.random.choice(np.arange(len(pos_n)), size=self.max_num_positive, replace=False)))
+                pos_keep = [pos_candidates[i]['prediction'] for i in pos_idxs]
+
+                neg_n = len(neg_candidates)
+                neg_idxs = list(sorted(np.random.choice(np.arange(len(neg_n)), size=self.max_num_negative, replace=False)))
+                neg_keep = [neg_candidates[i]['prediction'] for i in neg_idxs]
+            else:
+                raise Exception('Not implemented')
+        else:
+            pos = [x for x in cset if x['sign'] == 'positive']
+            neg = [x for x in cset if x['sign'] == 'negative']
+            pos_keep = self.select_positive(pos)
+            neg_keep = self.select_negative(neg)
         return pos_keep + neg_keep
+
+    def order(self, cset):
+        for cs in cset:
+            cs['sort_key'] = np.mean([cs[metric] for metric in self.contrast_metrics])
+            if self.metric_mode == 'max':
+                cs['sort_key'] = - cs['sort_key']  # Want larger (better at the front)
+        cset_ordered = list(sorted(cset, key=lambda x: x['sort_key']))
+        return cset_ordered
+
+    def select_soft_set(self, cset):
+        if self.use_mixed_methods:
+            cset_filt = [
+                x for x in cset if self.method_match(x['method'], self.mixed_methods)
+            ]
+        else:
+            raise Exception('Cant yet use pos/negative methods for soft sets')
+
+        cset_ordered = self.order(cset_filt)
+        n = len(cset_ordered)
+        keep_n = min(n, self.max_num_rank)
+        # TODO intra sample strategies
+        if self.contrast_sample_strategy == 'random':
+            keep_idxs = list(sorted(np.random.choice(np.arange(n), size=(keep_n), replace=False)))
+            final_set = []
+            for idx in keep_idxs:
+                final_set.append(cset_ordered[idx]['prediction'])
+        else:
+            raise Exception('Not implemented')
+        return final_set
 
     def __call__(self, features, return_tensors=None):
         uuids = [feature.pop('uuid') for feature in features]
@@ -689,7 +732,10 @@ class DataCollatorForContrastSeq2Seq:
 
         batch_csets = []
         for cset in csets:
-            batch_csets.extend(self.select_set(cset))
+            for cs in cset:
+                cs['prediction'] = cs['prediction'].strip()
+            filt_set = self.select_soft_set(cset) if self.set_type == 'soft' else self.select_hard_set(cset)
+            batch_csets.extend(filt_set)
         with self.tokenizer.as_target_tokenizer():
             contrast_labels = self.tokenizer(
                 batch_csets, add_special_tokens=True, max_length=self.max_target_length, padding=True, truncation=True,
