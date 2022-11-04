@@ -23,11 +23,13 @@ from collections import defaultdict
 import json
 import logging
 import math
+import regex as re
 import os
 import itertools
 import random
 from typing import Optional
 import ujson
+from glob import glob
 
 import datasets
 import nltk
@@ -36,7 +38,6 @@ import torch
 from datasets import load_from_disk, load_metric
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
-import pandas as pd
 
 import transformers
 from accelerate import Accelerator
@@ -44,10 +45,9 @@ from accelerate.logging import get_logger
 from accelerate.utils import set_seed
 from accelerate.tracking import GeneralTracker
 from filelock import FileLock
+import torch.nn as nn
 from transformers import (
-    CONFIG_MAPPING,
     MODEL_MAPPING,
-    AutoConfig,
     DataCollatorForSeq2Seq,
     DataCollatorForContrastSeq2Seq,
     SchedulerType,
@@ -87,13 +87,18 @@ CONTRAST_METRIC_LIBRARY = {
     'bs_ref_recall',
     'bs_ref_precision',
     'bs_ref_f1',
-    'bartscore',
-    'factscore',
+    'bart_score',
+    'fact_score',
     'num_prediction_tokens'
 }
 
 
-def load_accelerator_state_relaxed(input_dir, models, optimizers, schedulers, process_index, scaler=None, load_optimizer=True):
+def clean_uuid(uuid):
+    clean = re.sub(r'\W+', '_', uuid)
+    return re.sub(r'_+', '_', clean).strip('_')
+
+
+def load_accelerator_state_relaxed(config, input_dir, models, optimizers, schedulers, process_index, scaler=None, load_optimizer=True):
     """
     Loads states of the models, optimizers, scaler, and RNG generators from a given directory.
     Args:
@@ -121,7 +126,11 @@ def load_accelerator_state_relaxed(input_dir, models, optimizers, schedulers, pr
         weights_name = f"{MODEL_NAME}.bin" if i == 0 else f"{MODEL_NAME}_{i}.bin"
         input_model_file = os.path.join(input_dir, weights_name)
         # ONLY LINE CHANGED to allow for new parameters to be added to support contrastive learning -> strict = False
-        models[i].load_state_dict(torch.load(input_model_file, map_location="cpu"), strict=False)
+        state_dict = torch.load(input_model_file, map_location="cpu")
+        if hasattr(models[i], 'module'):
+            models[i].load_state_dict({'module.' + k: v for k, v in state_dict.items()}, strict=config.contrastive_classifier is False)
+        else:
+            models[i].load_state_dict(state_dict, strict=config.contrastive_classifier is False)
     logger.info("All model weights loaded successfully")
 
     if load_optimizer:
@@ -407,12 +416,13 @@ def parse_args():
     parser.add_argument('--optimizer', default='adam')
     parser.add_argument('--validate_every_n_steps', default=1000, type=int)
     parser.add_argument('--max_val_examples', default=256, type=int)
+    parser.add_argument('-save_every_time', default=False, action='store_true')
 
     # Contrast hyper-parameters
-    parser.add_argument('-build_contrast_exp_name', default=False, action='store_true')
-    parser.add_argument('--contrast_ckpt', default='primera_final')
     parser.add_argument('-contrast', default=False, action='store_true')
-    parser.add_argument('--contrast_metrics', default='bs_src_f1')
+    parser.add_argument('-build_contrast_exp_name', default=False, action='store_true')
+    parser.add_argument('--contrast_ckpt', default=None)
+    parser.add_argument('--contrast_metrics', default='faithful')
     parser.add_argument('--max_num_positive', default=3, type=int)
     parser.add_argument('--max_num_negative', default=3, type=int)
     parser.add_argument(
@@ -428,27 +438,23 @@ def parse_args():
             'min_value', 'max_value'
         ]
     )
-    parser.add_argument('--contrast_objective', default='contrast',
+    parser.add_argument('--contrast_objective', default='unlikelihood',
         choices=['unlikelihood', 'margin_rank', 'contrast', 'positive_teacher']
     )
     parser.add_argument('--contrast_weight', default=1.0, type=float)
-    parser.add_argument('--contrast_methods', default='all')
+    parser.add_argument('--positive_methods', default='all')
+    parser.add_argument('--negative_methods', default='all')
     # For ranking objective
     # Table 13 lambda https://arxiv.org/pdf/2203.16804.pdf this is 0.001
     parser.add_argument('--contrast_rank_margin', default=0.001, type=float)
     parser.add_argument('--mle_weight', default=1.0, type=float)
 
     args = parser.parse_args()
-
     if args.contrast:
-        args.resume_from_checkpoint = os.path.join(args.output_dir, args.contrast_ckpt, 'best_ckpt')
-        logger.info(f'Starting contrastive fine-tuning from {args.resume_from_checkpoint}')
-
-        if args.build_contrast_exp_name:
-            metric_str = '_'.join(list(sorted(args.contrast_metrics.split(','))))
-            methods_str = '_'.join(list(sorted(args.contrast_methods.split(','))))
-            args.experiment = f'{metric_str}_{args.contrast_objective}_{args.max_num_positive}_{args.max_num_negative}_{args.contrast_intra_sample_strategy}_{args.contrast_inter_sample_strategy}_{methods_str}'
-            logger.info(f'Build experiment name from hyper-parameters -> {args.experiment}')
+        args.log_every_n_steps = 2
+        if args.contrast_ckpt is not None:
+            args.resume_from_checkpoint = os.path.join(args.output_dir, args.contrast_ckpt, 'best_ckpt')
+            logger.info(f'Starting contrastive fine-tuning from {args.resume_from_checkpoint}')
 
     if 'AMLT_OUTPUT_DIR' in os.environ and os.environ['AMLT_OUTPUT_DIR'] is not None:
         singularity_out = os.environ['AMLT_OUTPUT_DIR']
@@ -570,47 +576,34 @@ def main():
     print(f'Loading custom dataset from {data_path}')
     raw_datasets = load_from_disk(data_path)
 
-    contrast_sets = None
+    contrast_dir = None
     if args.contrast:
-        corrupt_fn = os.path.join(DATA_DIR, args.dataset, 'corruptions_25000_with_metrics.csv')
-        print(f'Loading in corruptions from {corrupt_fn}')
-        corruptions = pd.read_csv(corrupt_fn)
-        contrast_sets = defaultdict(list)
-        skipped_methods = set()
+        contrast_dir = os.path.join(DATA_DIR, args.dataset, 'corruptions')
+        print(f'Loading in corruptions from {contrast_dir}')
         label_smoother = LabelSmoother(0.1)  # For margin rank contrastive learning
 
-        logger.info('Hard-coding contrastive fine-tuning specific parameters...')        
-        args.log_every_n_steps = 3
-        logger.info(f'Setting Maximum Train Steps to 1000')
-        args.max_train_steps = 1000
-        logger.info('Setting evaluation batch size to 1 (for now).')
-        args.per_device_eval_batch_size = 1
-        logger.info('Setting gradient accumulation steps to 4.')
-        args.gradient_accumulation_steps = 4
-        
-        # if args.contrast_objective in {'margin_rank'}:
-        #     logger.warning(f'For chosen objective: {args.contrast_objective}, you most only use decoding methods')
-        #     args.contrast_methods = 'diverse_decoding_primera,diverse_decoding_long_t5'
-        for record in corruptions.to_dict('records'):
-            method = record['method']
-            if args.contrast_methods == 'all' or record['method'] in args.contrast_methods:
-                contrast_sets[record['uuid']].append(record)
-            else:
-                skipped_methods.add(method)
-        skipped_methods = list(skipped_methods)
-        print('Skipped ' + ','.join(skipped_methods))
+        def get_uuid_from_fn(fn):
+            return fn.split('/')[-1].replace('.json', '')
 
-        if args.contrast_inter_sample_strategy != 'random':
-            target_n = args.gradient_accumulation_steps * args.per_device_train_batch_size * args.max_train_steps
-            train_uuids = raw_datasets['train']['uuid']
-            print(f'Filtering for {target_n} examples by strategy -> {args.contrast_inter_sample_strategy}')
-            contrast_sets = filter_contrast_sets(args, contrast_sets, train_uuids, target_n)
-        
-        available_uuids = set(contrast_sets.keys())
-        for split in ['train', 'validation']:
-            split_uuids = raw_datasets[split]['uuid']
-            avail_idxs = [idx for idx, uuid in enumerate(split_uuids) if uuid in available_uuids]
-            raw_datasets[split] = raw_datasets[split].select(avail_idxs)
+        # Filter for available uuids
+        train_pattern = os.path.join(contrast_dir, 'train', '*.json')
+        val_pattern = os.path.join(contrast_dir, 'validation', '*.json')
+        train_fns = list(glob(train_pattern))
+        val_fns = list(glob(val_pattern))
+
+        train_uuid_set = set(list(map(get_uuid_from_fn, train_fns)))
+        val_uuid_set = set(list(map(get_uuid_from_fn, val_fns)))
+
+        train_uuids = raw_datasets['train']['uuid']
+        val_uuids = raw_datasets['validation']['uuid']
+        if args.dataset == 'chemistry':
+            train_uuids = [clean_uuid(uuid) for uuid in train_uuids]
+            val_uuids = [clean_uuid(uuid) for uuid in val_uuids]
+
+        keep_train_idxs = [i for i, uuid in enumerate(train_uuids) if uuid in train_uuid_set]
+        keep_val_idxs = [i for i, uuid in enumerate(val_uuids) if uuid in val_uuid_set]
+        raw_datasets['train'] = raw_datasets['train'].select(keep_train_idxs)
+        raw_datasets['validation'] = raw_datasets['validation'].select(keep_val_idxs)
 
     if args.hf_model == 't5':
         tokenizer = T5Tokenizer.from_pretrained(T5_MODEL)
@@ -646,11 +639,39 @@ def main():
         pad_multiple = 8 if accelerator.use_fp16 else None
 
     if args.contrast:
-        assert all([x in CONTRAST_METRIC_LIBRARY for x in args.contrast_metrics.split(',')])
-        data_collator = DataCollatorForContrastSeq2Seq(
+        if args.contrast_metrics == 'faithful':
+            contrast_metrics = ['bs_src_precision', 'fact_score', 'bart_score']
+        elif args.contrast_metrics == 'relevance':
+            contrast_metrics = ['bs_ref_f1', 'rouge1', 'rouge2']
+        else:
+            contrast_metrics = args.contrast_metrics.split(',')
+
+        logger.info(contrast_metrics)
+
+        assert all([x in CONTRAST_METRIC_LIBRARY for x in contrast_metrics])
+        train_data_collator = DataCollatorForContrastSeq2Seq(
             tokenizer,
-            contrast_sets=contrast_sets,
-            contrast_metrics=args.contrast_metrics,
+            positive_methods=args.positive_methods,
+            negative_methods=args.negative_methods,
+            contrast_dir=contrast_dir,
+            split='train',
+            contrast_metrics=contrast_metrics,
+            max_num_positive=args.max_num_positive,
+            max_num_negative=args.max_num_negative,
+            max_target_length=args.max_target_length,
+            contrast_sample_strategy=args.contrast_intra_sample_strategy,
+            model=model,
+            label_pad_token_id=label_pad_token_id,
+            pad_to_multiple_of=pad_multiple,
+        )
+
+        val_data_collator = DataCollatorForContrastSeq2Seq(
+            tokenizer,
+            positive_methods=args.positive_methods,
+            negative_methods=args.negative_methods,
+            split='validation',
+            contrast_dir=contrast_dir,
+            contrast_metrics=contrast_metrics,
             max_num_positive=args.max_num_positive,
             max_num_negative=args.max_num_negative,
             contrast_sample_strategy=args.contrast_intra_sample_strategy,
@@ -659,7 +680,7 @@ def main():
             pad_to_multiple_of=pad_multiple,
         )
     else:
-        data_collator = DataCollatorForSeq2Seq(
+        train_data_collator = val_data_collator = DataCollatorForSeq2Seq(
             tokenizer,
             model=model,
             label_pad_token_id=label_pad_token_id,
@@ -677,11 +698,11 @@ def main():
 
     num_workers = 0 if args.debug else 8
     train_dataloader = DataLoader(
-        train_dataset, shuffle=True, collate_fn=data_collator, batch_size=args.per_device_train_batch_size,
+        train_dataset, shuffle=True, collate_fn=train_data_collator, batch_size=args.per_device_train_batch_size,
         num_workers=num_workers
     )
     eval_dataloader = DataLoader(
-        eval_dataset, collate_fn=data_collator, batch_size=args.per_device_eval_batch_size,
+        eval_dataset, collate_fn=val_data_collator, batch_size=args.per_device_eval_batch_size,
         num_workers=num_workers
     )
 
@@ -713,7 +734,6 @@ def main():
     else:
         assert len(contrast_np) == 0
 
-    optimizer = torch.optim.AdamW(optimizer_grouped_parameters)
     if args.use_deepspeed:
         from deepspeed.ops.adam import DeepSpeedCPUAdam
         optimizer = DeepSpeedCPUAdam(optimizer_grouped_parameters)
@@ -768,7 +788,8 @@ def main():
         accelerator.print(f"Resumed from checkpoint: {args.resume_from_checkpoint}")
         logger.info(f"Loading states from {args.resume_from_checkpoint}")
         load_accelerator_state_relaxed(
-            args.resume_from_checkpoint, accelerator._models, accelerator._optimizers, accelerator._schedulers, accelerator.state.process_index, accelerator.scaler,
+            config, args.resume_from_checkpoint, accelerator._models, accelerator._optimizers, accelerator._schedulers,
+            accelerator.state.process_index, accelerator.scaler,
             load_optimizer=not args.contrast  # We are starting a new run
         )
 
@@ -850,7 +871,6 @@ def main():
                 all_contrast_nll.append(contrast_nll)
             contrast_losses['contrast_nll'] = torch.stack(all_contrast_nll).mean()
         elif args.contrast_objective == 'margin_rank':  # BRIO https://arxiv.org/pdf/2203.16804.pdf
-            import torch.nn as nn
             loss_fct = nn.CrossEntropyLoss(reduction='none')
             nll = loss_fct(contrast_output.logits.view(-1, model.config.vocab_size), contrast_labels.view(-1)).view(
                 bsize, c_set_size, target_len
@@ -1008,7 +1028,7 @@ def main():
 
     # Sanity check the validation steps
     if not args.debug:
-        result, _ = run_validation(steps=1)
+        result, _ = run_validation(steps=5)
         accelerator.log(result, step=0)
         logger.info(result)
     logger.info(f'Starting at epoch {starting_epoch}/{args.num_train_epochs}')
@@ -1078,14 +1098,23 @@ def main():
                         for k, v in contrast_stats.items():
                             accelerator.log({f'train/{k}': float(v)}, step=completed_steps)
 
-                if completed_steps % args.validate_every_n_steps == 0 and not args.contrast:
+                if completed_steps % args.validate_every_n_steps == 0:
                     result, loss_keys = run_validation()
                     accelerator.log(result, step=step)
                     monitor_val = np.mean([result[k] for k in loss_keys])
-                    if monitor_val <= min_val_loss:
-                        logger.info(f'Validation loss improved from {min_val_loss} to {monitor_val}.  Saving weights to {ckpt_dir}')
+                    if monitor_val <= min_val_loss or args.save_every_time:
+                        logger.info(
+                            f'Validation loss improved from {min_val_loss} to {monitor_val}. '
+                            f'Saving weights to {ckpt_dir}'
+                        )
                         if not args.debug:
                             os.makedirs(ckpt_dir, exist_ok=True)
+
+                            if args.save_every_time:
+                                ckpt_dir = os.path.join(args.output_dir, f'ckpt_{completed_steps}_steps')
+                                os.makedirs(ckpt_dir, exist_ok=True)
+                            else:
+                                ckpt_dir = os.path.join(args.output_dir, 'best_ckpt')
                             accelerator.save_state(ckpt_dir)
 
                             step_fn = os.path.join(ckpt_dir, 'step.json')
@@ -1093,7 +1122,11 @@ def main():
                                 ujson.dump({'step': step, 'completed_step': completed_steps, 'epoch': epoch}, fd)
 
                             min_val_loss = monitor_val
-                            with open(os.path.join(args.output_dir, 'best_results.json'), "w") as f:
+                            if args.save_every_time:
+                                results_fn = os.path.join(args.output_dir, f'results_{completed_steps}_steps.json')
+                            else:
+                                results_fn = os.path.join(args.output_dir, 'best_results.json')
+                            with open(results_fn, 'w') as f:
                                 json.dump(
                                     {
                                         "eval_rouge1": result["validation/rouge1"],

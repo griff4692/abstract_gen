@@ -2,7 +2,6 @@ import os
 
 import argparse
 import pandas as pd
-import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -49,7 +48,7 @@ if __name__ == '__main__':
         for k, v in obj.items():
             print(f'- \t{k}: {str(v)}')
         print('\n')
-    
+
     method_to_metrics = []
     for method in methods:
         key = method.replace('_', ' ')

@@ -1432,6 +1432,33 @@ class RobertaForTokenClassification(RobertaPreTrainedModel):
         )
 
 
+class RobertaClassificationHeadWithPooling(nn.Module):
+    """Head for sentence-level classification tasks."""
+    def __init__(self, config):
+        super().__init__()
+        self.importance = nn.Linear(config.hidden_size, 1)
+        self.dense = nn.Linear(config.hidden_size, config.hidden_size)
+        classifier_dropout = (
+            config.classifier_dropout if config.classifier_dropout is not None else config.hidden_dropout_prob
+        )
+        self.dropout = nn.Dropout(classifier_dropout)
+        self.out_proj = nn.Linear(config.hidden_size, config.num_labels)
+
+    def forward(self, features, attention_mask, **kwargs):
+        w = self.importance(features).squeeze(-1)
+        w.masked_fill_(attention_mask, float('-inf'))
+        w = torch.softmax(w, dim=1)
+        n_dim = (~attention_mask).sum(dim=1, keepdim=True)
+        x = (features * w.unsqueeze(dim=-1)).sum(dim=1) / n_dim
+        # x = features[:, 0, :]  # take <s> token (equiv. to [CLS])
+        x = self.dropout(x)
+        x = self.dense(x)
+        x = torch.tanh(x)
+        x = self.dropout(x)
+        x = self.out_proj(x)
+        return x
+
+
 class RobertaClassificationHead(nn.Module):
     """Head for sentence-level classification tasks."""
 

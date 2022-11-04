@@ -18,8 +18,8 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any, Callable, Dict, List, NewType, Optional, Tuple, Union
 import numpy as np
-
-import torch
+import os
+import ujson
 
 from ..models.bert import BertTokenizer, BertTokenizerFast
 from ..tokenization_utils_base import PreTrainedTokenizerBase
@@ -550,9 +550,12 @@ class DataCollatorForContrastSeq2Seq:
     """
 
     tokenizer: PreTrainedTokenizerBase
+    positive_methods: List[str]
+    negative_methods: List[str]
+    contrast_metrics: List[str]
     model: Optional[Any] = None
-    contrast_sets: dict = None
-    contrast_metrics: str = 'rouge1'
+    contrast_dir: str = None
+    split: str = 'train'
     metric_mode: str = 'max'
     padding: Union[bool, str, PaddingStrategy] = True
     max_length: Optional[int] = None
@@ -604,33 +607,99 @@ class DataCollatorForContrastSeq2Seq:
             raise Exception('Please implement me by calling looking up bartscore')
         return [arr[i] for i in np.sort(idxs_to_keep)]
 
-    def __call__(self, features, return_tensors=None):
-        import numpy as np
-        metrics = self.contrast_metrics.split(',')
-
-        uuids = [feature.pop('uuid') for feature in features]
-        csets = [self.contrast_sets[uuid] for uuid in uuids]
-
-        batch_csets = []
-        for cset in csets:
-            for cs in cset:
+    def select_positive(self, cset, metrics):
+        reference = [x for x in cset if x['method'] == 'reference']
+        assert len(reference) == 1
+        non_ref = [x for x in cset if x['method'] != 'reference']
+        assert len(non_ref) > 0
+        if self.positive_methods == 'ensure_reference':
+            for cs in non_ref:
                 cs['sort_key'] = np.mean([cs[metric] for metric in metrics])
                 if self.metric_mode == 'max':
                     cs['sort_key'] = - cs['sort_key']  # Want larger (better at the front)
-            cset_ordered = list(sorted(cset, key=lambda x: x['sort_key']))
-            contrast_abstracts = [x['prediction'] for x in cset_ordered]
-            batch_csets.extend(self.subsample(contrast_abstracts))
+            non_ref_ordered = list(sorted(non_ref, key=lambda x: x['sort_key']))
+            summaries = [x['prediction'] for x in non_ref_ordered]
+            n = len(summaries)
+            keep_n = min(n, self.max_num_negative) - 1
+            # TODO intra sample strategies
+            if self.contrast_sample_strategy == 'random':
+                np.random.shuffle(summaries)
+            else:
+                raise Exception('Not implemented')
+            keep_summaries = [reference[0]['prediction']] + summaries[:keep_n]
+        else:
+            if self.positive_methods == 'paraphrase':
+                cset_filt = non_ref
+            else:
+                assert self.positive_methods == 'all'  # Paraphrase is the only positive generation method
+                cset_filt = cset
+            for cs in cset_filt:
+                cs['sort_key'] = np.mean([cs[metric] for metric in metrics])
+                if self.metric_mode == 'max':
+                    cs['sort_key'] = - cs['sort_key']  # Want larger (better at the front)
+            cset_ordered = list(sorted(cset_filt, key=lambda x: x['sort_key']))
+            summaries = [x['prediction'] for x in cset_ordered]
+            n = len(summaries)
+            keep_n = min(n, self.max_num_negative)
+            # TODO intra sample strategies
+            if self.contrast_sample_strategy == 'random':
+                np.random.shuffle(summaries)
+            else:
+                raise Exception('Not implemented')
+            keep_summaries = summaries[:keep_n]
+        return list(keep_summaries)
 
+    def method_match(self, method, keep_methods):
+       return method in keep_methods or 'all' in keep_methods
+
+    def select_negative(self, cset, metrics):
+        cset_filt = [x for x in cset if self.method_match(x['method'], self.negative_methods)]
+        for cs in cset_filt:
+            cs['sort_key'] = np.mean([cs[metric] for metric in metrics])
+            if self.metric_mode == 'max':
+                cs['sort_key'] = - cs['sort_key']  # Want larger (better at the front)
+        cset_ordered = list(sorted(cset_filt, key=lambda x: x['sort_key']))
+        summaries = [x['prediction'] for x in cset_ordered]
+        n = len(summaries)
+        keep_n = min(n, self.max_num_negative)
+        keep_summaries = summaries[:keep_n]
+        # TODO intra sample strategies
+        if self.contrast_sample_strategy == 'random':
+            np.random.shuffle(keep_summaries)
+        else:
+            raise Exception('Not implemented')
+        return list(keep_summaries)
+
+    def select_set(self, cset):
+        for cs in cset:
+            cs['prediction'] = cs['prediction'].strip()
+        pos = [x for x in cset if x['sign'] == 'positive']
+        neg = [x for x in cset if x['sign'] == 'negative']
+        pos_keep = self.select_positive(pos, self.contrast_metrics)
+        neg_keep = self.select_negative(neg, self.contrast_metrics)
+        return pos_keep + neg_keep
+
+    def __call__(self, features, return_tensors=None):
+        uuids = [feature.pop('uuid') for feature in features]
+        csets = []
+        for uuid in uuids:
+            contrast_fn = os.path.join(self.contrast_dir, self.split, f'{uuid}.json')
+            with open(contrast_fn, 'r') as fd:
+                csets.append(ujson.load(fd))
+
+        batch_csets = []
+        for cset in csets:
+            batch_csets.extend(self.select_set(cset))
         with self.tokenizer.as_target_tokenizer():
             contrast_labels = self.tokenizer(
                 batch_csets, add_special_tokens=True, max_length=self.max_target_length, padding=True, truncation=True,
-                return_tensors=self.return_tensors, # pad_to_multiple_of=self.pad_to_multiple_of,
+                return_tensors=self.return_tensors,  # pad_to_multiple_of=self.pad_to_multiple_of,
             )['input_ids']
             contrast_labels[contrast_labels == self.tokenizer.pad_token_id] = self.label_pad_token_id
 
         if return_tensors is None:
             return_tensors = self.return_tensors
-        labels = [feature["labels"] for feature in features] if "labels" in features[0].keys() else None
+        labels = [feature['labels'] for feature in features] if 'labels' in features[0].keys() else None
         # We have to pad the labels before calling `tokenizer.pad` as this method won't pad them and needs them of the
         # same length to return tensors.
         if labels is not None:
@@ -644,15 +713,15 @@ class DataCollatorForContrastSeq2Seq:
 
             padding_side = self.tokenizer.padding_side
             for feature in features:
-                remainder = [self.label_pad_token_id] * (max_label_length - len(feature["labels"]))
-                if isinstance(feature["labels"], list):
-                    feature["labels"] = (
-                        feature["labels"] + remainder if padding_side == "right" else remainder + feature["labels"]
+                remainder = [self.label_pad_token_id] * (max_label_length - len(feature['labels']))
+                if isinstance(feature['labels'], list):
+                    feature['labels'] = (
+                        feature['labels'] + remainder if padding_side == 'right' else remainder + feature['labels']
                     )
-                elif padding_side == "right":
-                    feature["labels"] = np.concatenate([feature["labels"], remainder]).astype(np.int64)
+                elif padding_side == 'right':
+                    feature['labels'] = np.concatenate([feature['labels'], remainder]).astype(np.int64)
                 else:
-                    feature["labels"] = np.concatenate([remainder, feature["labels"]]).astype(np.int64)
+                    feature['labels'] = np.concatenate([remainder, feature['labels']]).astype(np.int64)
 
         features = self.tokenizer.pad(
             features,
@@ -662,14 +731,13 @@ class DataCollatorForContrastSeq2Seq:
             return_tensors=return_tensors,
         )
 
-        # prepare decoder_input_ids
         if (
             labels is not None
             and self.model is not None
-            and hasattr(self.model, "prepare_decoder_input_ids_from_labels")
+            and hasattr(self.model, 'prepare_decoder_input_ids_from_labels')
         ):
-            decoder_input_ids = self.model.prepare_decoder_input_ids_from_labels(labels=features["labels"])
-            features["decoder_input_ids"] = decoder_input_ids
+            decoder_input_ids = self.model.prepare_decoder_input_ids_from_labels(labels=features['labels'])
+            features['decoder_input_ids'] = decoder_input_ids
 
         contrast_features = {
             'labels': contrast_labels

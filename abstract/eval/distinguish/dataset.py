@@ -40,18 +40,17 @@ class DistinguishDataModule(pl.LightningDataModule):
         print(f'Reading in dataset from {data_fn}')
         raw_data = pd.read_csv(data_fn)
 
-        uuid_fn = os.path.join(DATA_DIR, args.dataset, 'contrast_uuids.csv')
-        uuid_df = pd.read_csv(uuid_fn)
-        self.split2uuid = defaultdict(set)
-        for record in uuid_df.to_dict('records'):
-            self.split2uuid[record['split']].add(record['uuid'])
-
         print(f'Grouping raw data ({len(raw_data)} rows) by UUID')
         self.uuid2records = dict(tuple(raw_data.groupby('uuid')))
+        self.split2uuid = defaultdict(set)
+        for record in raw_data[['uuid', 'split']].to_dict('records'):
+            self.split2uuid[record['split']].add(record['uuid'])
+
+        for k, v in self.split2uuid.items():
+            self.split2uuid[k] = list(sorted(list(v)))
 
         self.tokenizer = tokenizer
         self.debug = args.debug
-        self.tokenizer = tokenizer
         self.num_workers = 0 if self.debug else 8
         self.batch_size = args.batch_size
         self.max_candidates = args.max_candidates
@@ -67,7 +66,7 @@ class DistinguishDataModule(pl.LightningDataModule):
         kwargs = {
             'batch_size': self.batch_size,
             'shuffle': True,
-            'num_workers': 1 if self.debug else self.num_workers,
+            'num_workers': 0 if self.debug else self.num_workers,
             'collate_fn': collate_fn
         }
         return DataLoader(train_split, **kwargs)
@@ -82,7 +81,7 @@ class DistinguishDataModule(pl.LightningDataModule):
         kwargs = {
             'batch_size': self.batch_size,
             'shuffle': True,
-            'num_workers': 1 if self.debug else self.num_workers,
+            'num_workers': 0 if self.debug else self.num_workers,
             'collate_fn': collate_fn
         }
         return DataLoader(validation_split, **kwargs)

@@ -41,9 +41,6 @@ import torch
 from torch.utils.data import DataLoader
 
 
-from abstract.preprocess.preprocess import data_loader
-
-
 # from abstract.model.utils import add_global_attention_mask
 def add_global_attention_mask(batch):
     global_attention_mask = torch.zeros_like(batch['input_ids']).to(batch['input_ids'].device)
@@ -81,6 +78,10 @@ def merge_chunks(split, output_dir):
     merged = pd.concat(merged)
     print(f'Saving {len(merged)} outputs to {out_fn}')
     merged.sort_values(by='uuid').reset_index(drop=True).to_csv(out_fn, index=False)
+    if args.erase_after_merge:
+        print(f'Removing {len(chunk_fns)} chunk files...')
+        for fn in chunk_fns:
+            os.remove(fn)
 
 
 def generate(args, split, split_dataset, model, tokenizer, output_dir, verbose=True):
@@ -166,66 +167,70 @@ def generate(args, split, split_dataset, model, tokenizer, output_dir, verbose=T
 
     for batch_idx, batch in enumerate(tqdm(dataloader, total=len(dataloader))):
         batch_suffix = '_' + str(batch_idx)
+        batch_size = len(batch['input_ids'])
         out_fn = os.path.join(output_dir, f'predictions{chunk_suffix}{batch_suffix}.csv')
         batch_outputs = []
 
         if os.path.exists(out_fn) and not args.overwrite:
             print(f'Already done {out_fn} Skipping.')
-            continue
+            num_complete += batch_size
+        else:
+            if args.hf_model == 'primera':
+                add_global_attention_mask(batch)
+                gen_kwargs['global_attention_mask'] = batch['global_attention_mask'].to(args.device)
+            with torch.no_grad(), torch.cuda.amp.autocast() if args.hf_model == 'primera' else torch.no_grad():
+                generated_tokens = model.generate(
+                    batch['input_ids'].to(args.device),
+                    attention_mask=batch['attention_mask'].to(args.device),
+                    **gen_kwargs,
+                ).cpu().numpy()
 
-        if args.hf_model == 'primera':
-            add_global_attention_mask(batch)
-            gen_kwargs['global_attention_mask'] = batch['global_attention_mask'].to(args.device)
-        with torch.no_grad(), torch.cuda.amp.autocast() if args.hf_model == 'primera' else torch.no_grad():
-            generated_tokens = model.generate(
-                batch['input_ids'].to(args.device),
-                attention_mask=batch['attention_mask'].to(args.device),
-                **gen_kwargs,
-            ).cpu().numpy()
+                labels = batch['labels'].numpy()
+                labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
 
-            labels = batch['labels'].numpy()
-            batch_size = len(batch['input_ids'])
-            labels = np.where(labels != -100, labels, tokenizer.pad_token_id)
-        
-            decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
-            decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+                decoded_preds = tokenizer.batch_decode(generated_tokens, skip_special_tokens=True)
+                decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
 
-            decoded_labels_ext = []
-            for label in decoded_labels:
-                decoded_labels_ext += [label] * args.num_candidates
+                decoded_labels_ext = []
+                for label in decoded_labels:
+                    decoded_labels_ext += [label] * args.num_candidates
 
-            prepared_preds = postprocess_text(decoded_preds)
-            references = postprocess_text(decoded_labels_ext)
+                prepared_preds = postprocess_text(decoded_preds)
+                references = postprocess_text(decoded_labels_ext)
 
-            data_idxs = list(itertools.chain(*[[idx] * args.num_candidates for idx in range(data_offset, data_offset + batch_size)]))
-            uuids_ext = [uuids[idx] for idx in data_idxs]
-            data_offset += batch_size
-            sample_idxs = []
-            for _ in range(batch_size):
-                sample_idxs += list(range(args.num_candidates))
-                num_complete += 1                    
-                if num_complete % 100 == 0:
+                data_idxs = list(itertools.chain(
+                    *[[idx] * args.num_candidates for idx in range(data_offset, data_offset + batch_size)]
+                ))
+                uuids_ext = [uuids[idx] for idx in data_idxs]
+                sample_idxs = []
+                for _ in range(batch_size):
+                    sample_idxs += list(range(args.num_candidates))
+                    num_complete += 1
+                    if num_complete % 100 == 0:
+                        print(f'Completed {num_complete} / {n}')
+
+                if verbose:
                     print(f'Completed {num_complete} / {n}')
 
-            if verbose:
-                print(f'Completed {num_complete} / {n}')
+                assert len(decoded_preds) == len(decoded_labels_ext) == len(prepared_preds) == len(references) == len(uuids_ext)
+                for clean_prediction, clean_label, prediction, reference, uuid, sample_idx in zip(
+                    decoded_preds, decoded_labels_ext, prepared_preds, references, uuids_ext, sample_idxs
+                    ):
+                    output_row = {
+                        'prediction': clean_prediction, 'target': clean_label,
+                        'uuid': uuid, 'sample_idx': sample_idx
+                    }
+                    rouge_obj = compute_rouge(metric, reference=reference, prediction=prediction)
+                    output_row.update(rouge_obj)
+                    batch_outputs.append(output_row)
 
-            assert len(decoded_preds) == len(decoded_labels_ext) == len(prepared_preds) == len(references) == len(uuids_ext)
-            for clean_prediction, clean_label, prediction, reference, uuid, sample_idx in zip(
-                decoded_preds, decoded_labels_ext, prepared_preds, references, uuids_ext, sample_idxs
-                ):
-                output_row = {
-                    'prediction': clean_prediction, 'target': clean_label,
-                    'uuid': uuid, 'sample_idx': sample_idx
-                }
-                rouge_obj = compute_rouge(metric, reference=reference, prediction=prediction)
-                output_row.update(rouge_obj)
-                batch_outputs.append(output_row)
+                batch_outputs = pd.DataFrame(batch_outputs)
+                if verbose:
+                    print(f'Saving {len(batch_outputs)} outputs to {out_fn}')
+                batch_outputs.to_csv(out_fn, index=False)
 
-            batch_outputs = pd.DataFrame(batch_outputs)
-            if verbose:
-                print(f'Saving {len(batch_outputs)} outputs to {out_fn}')
-            batch_outputs.to_csv(out_fn, index=False)
+        # Update offset
+        data_offset += batch_size
 
 
 if __name__ == '__main__':
@@ -246,6 +251,7 @@ if __name__ == '__main__':
     parser.add_argument('-overwrite', default=False, action='store_true')
 
     parser.add_argument('--mode', default='generate', choices=['merge_chunks', 'generate'])
+    parser.add_argument('-erase_after_merge', default=False, action='store_true')
 
     args = parser.parse_args()
 

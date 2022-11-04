@@ -25,7 +25,7 @@ import torch.multiprocessing as mp
 
 METRICS = ['rouge', 'extractive_fragments', 'bert_score', 'bart_score', 'fact_score']
 METRIC_COLS = list(sorted([
-    'num_prediction_tokens', 'coverage', 'density', 'compression', 'rouge1', 'rouge2', 'rougeL',
+    'num_prediction_tokens', 'coverage', 'density', 'compression', 'rouge1', 'rouge2',  # 'rougeL',
     'bs_src_recall', 'bs_src_precision', 'bs_src_f1', 'bs_ref_recall', 'bs_ref_precision', 'bs_ref_f1',
     'bart_score', 'fact_score'
 ]))
@@ -68,7 +68,7 @@ def tokenize(text, lower=True):
 
 def prepare(record, orig_data, uuid_cache=None, include_tokens=True, include_source=True):
     uuid = record['uuid']
-    
+
     prediction = remove_eos_bos_from_str(record['prediction'])
     prediction_sents = nltk.sent_tokenize(prediction)
     prediction_tokens = None
@@ -313,6 +313,15 @@ if __name__ == '__main__':
         exit(0)
     if args.mode == 'merge_metrics':
         in_pattern = prediction_fn.replace('.csv', '') + '_with_{}.csv'
+        out_fn = prediction_fn.replace('.csv', '') + '_with_metrics.csv'
+
+        if os.path.exists(out_fn):
+            if args.overwrite:
+                print(f'Overwriting existing metrics file: {out_fn}')
+            else:
+                print(f'{out_fn} exists. Run with -overwrite if you want to replace.')
+                exit(0)
+
         dfs = []
         fns = []
         for metric in METRICS:
@@ -340,7 +349,6 @@ if __name__ == '__main__':
             print(f'Adding {new_col_str} from {fns[idx]}')
             for new_col in new_cols:
                 merged[new_col] = new_df[new_col]
-        out_fn = prediction_fn.replace('.csv', '') + '_with_metrics.csv'
         print(f'Saving merged to {out_fn}')
         merged.to_csv(out_fn, index=False)
         if args.erase_after_merge:
@@ -352,9 +360,19 @@ if __name__ == '__main__':
         exit(0)
 
     print(f'Loading in predictions from {prediction_fn}')
-    predict_df = pd.read_csv(prediction_fn).sort_values(by='uuid')
-    predict_df.dropna(subset=['prediction', 'uuid'], inplace=True)
+    predict_df = pd.read_csv(prediction_fn)
 
+    # TODO eventually remove
+    if 'uuid_fixed' in predict_df.columns:
+        print('Treating uuid_fixed as uuid...')
+        # Backwards compatibility with diverse_decode_debug script (Remove these lines if/when we re-run)
+        predict_df = predict_df.dropna(subset='uuid_fixed').reset_index(drop=True)
+        predict_df['uuid_prev'] = predict_df['uuid']
+        predict_df['uuid'] = predict_df['uuid_fixed']
+        predict_df.drop(columns=['uuid_fixed'], inplace=True)
+
+    predict_df = predict_df.sort_values(by='uuid')
+    predict_df.dropna(subset=['prediction', 'uuid'], inplace=True)
     predict_df = predict_df.assign(temp_id=list(range(len(predict_df))))
     records = predict_df.to_dict('records')
 

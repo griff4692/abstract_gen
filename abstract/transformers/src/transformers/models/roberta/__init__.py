@@ -55,6 +55,7 @@ else:
         "RobertaForQuestionAnswering",
         "RobertaForSequenceClassification",
         "RobertaForTokenClassification",
+        "RobertaClassificationHeadWithPooling",
         "RobertaModel",
         "RobertaPreTrainedModel",
     ]
@@ -124,6 +125,7 @@ if TYPE_CHECKING:
             RobertaForTokenClassification,
             RobertaModel,
             RobertaPreTrainedModel,
+            RobertaClassificationHeadWithPooling,
         )
 
     try:
