@@ -9,7 +9,7 @@ STAGE=2
 
 # Data arguments
 DATASET=$3
-FROM_CKPT=$4
+FROM_CKPT=$4  # ft or fft
 OBJECTIVE=$5  # unlikelihood, contrast, margin_rank
 EXPERIMENT=$6
 
@@ -22,7 +22,7 @@ NEG_METHODS="all"
 HF_MODEL="primera"
 CONTRAST_CKPT="primera_ft_$DATASET"
 MAX_TARGET_LENGTH=256
-STEPS_PER_VALIDATION=500
+STEPS_PER_VALIDATION=1000
 MAX_STEPS=10000
 
 LAUNCH_CMD="accelerate launch --main_process_port=$PORT --mixed_precision=fp16 --use_deepspeed --gpu_ids=$DEVICE --num_machines=1 --gradient_accumulation_steps=$GRAD_ACCUM --zero_stage=$STAGE --offload_optimizer=cpu run.py"
@@ -45,4 +45,4 @@ fi
 
 echo $ACCELERATE_CMD
 echo $PROGRAM_ARGS
-$ACCELERATE_CMD $PROGRAM_ARGS --experiment $EXPERIMENT
+$ACCELERATE_CMD $PROGRAM_ARGS --experiment $EXPERIMENT -save_every_time

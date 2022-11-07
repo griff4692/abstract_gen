@@ -1118,7 +1118,7 @@ def main():
 
                 if completed_steps % args.validate_every_n_steps == 0:
                     result, loss_keys = run_validation()
-                    accelerator.log(result, step=step)
+                    accelerator.log(result, step=completed_steps)
                     monitor_val = np.mean([result[k] for k in loss_keys])
                     if monitor_val <= min_val_loss or args.save_every_time:
                         logger.info(
@@ -1166,7 +1166,7 @@ def main():
         if is_done:
             break
     result, loss_keys = run_validation()
-    accelerator.log(result, step=step)
+    accelerator.log(result, step=completed_steps)
     monitor_val = np.mean([result[k] for k in loss_keys])
     logger.info(f'Final validation loss from {min_val_loss} to {monitor_val}. Saving weights to {ckpt_dir}')
     if not args.debug:
@@ -1185,13 +1185,13 @@ def main():
                 },
                 f,
             )
-    if not args.skip_inference:
-        args.batch_size = 16  # For inference
-        args.max_test_examples = 10000
-        args.num_beams = 1
-        args.device = 0
-        logger.info('Running inference on test set...')
-        main_inference(args)
+    # if not args.skip_inference:
+    #     args.batch_size = 16  # For inference
+    #     args.max_test_examples = 10000
+    #     args.num_beams = 1
+    #     args.device = 0
+    #     logger.info('Running inference on test set...')
+    #     main_inference(args)
 
 
 if __name__ == '__main__':
