@@ -23,17 +23,6 @@ MAX_TARGET_LENGTH=256
 STEPS_PER_VALIDATION=1000
 MAX_STEPS=10000
 
-LAUNCH_CMD="accelerate launch --main_process_port=$PORT --mixed_precision=fp16 --use_deepspeed --gpu_ids=$DEVICE --num_machines=1 --gradient_accumulation_steps=$GRAD_ACCUM --zero_stage=$STAGE --offload_optimizer=cpu run.py"
-# Can't use mixed precision for unlikelihood
-UNLIKELIHOOD_LAUNCH="accelerate launch --main_process_port=$PORT --mixed_precision=no --use_deepspeed --gpu_ids=$DEVICE --num_machines=1 --gradient_accumulation_steps=$GRAD_ACCUM --zero_stage=$STAGE --offload_optimizer=cpu run.py"
-
-PROGRAM_ARGS="-contrast --contrast_objective $OBJECTIVE --max_target_length $MAX_TARGET_LENGTH --contrast_metrics $METRICS --max_num_positive $NUM_POS --max_num_negative $NUM_NEG --gradient_accumulation_steps $GRAD_ACCUM --dataset $DATASET --hf_model $HF_MODEL --positive_methods $POS_METHODS --negative_methods $NEG_METHODS --validate_every_n_steps $STEPS_PER_VALIDATION --max_train_steps $MAX_STEPS"
-
-if [[ $FROM_CKPT == "fft" ]]
-then
-  PROGRAM_ARGS+=" --contrast_ckpt $CONTRAST_CKPT"
-fi
-
 if [[ $OBJECTIVE == "unlikelihood" ]]
 then
   ACCELERATE_CMD=$UNLIKELIHOOD_LAUNCH
@@ -43,6 +32,17 @@ else
   ACCELERATE_CMD=$LAUNCH_CMD
   NUM_POS=2
   NUM_NEG=2
+fi
+
+LAUNCH_CMD="accelerate launch --main_process_port=$PORT --mixed_precision=fp16 --use_deepspeed --gpu_ids=$DEVICE --num_machines=1 --gradient_accumulation_steps=$GRAD_ACCUM --zero_stage=$STAGE --offload_optimizer=cpu run.py"
+# Can't use mixed precision for unlikelihood
+UNLIKELIHOOD_LAUNCH="accelerate launch --main_process_port=$PORT --mixed_precision=no --use_deepspeed --gpu_ids=$DEVICE --num_machines=1 --gradient_accumulation_steps=$GRAD_ACCUM --zero_stage=$STAGE --offload_optimizer=cpu run.py"
+
+PROGRAM_ARGS="-contrast --contrast_objective $OBJECTIVE --max_target_length $MAX_TARGET_LENGTH --contrast_metrics $METRICS --max_num_positive $NUM_POS --max_num_negative $NUM_NEG --gradient_accumulation_steps $GRAD_ACCUM --dataset $DATASET --hf_model $HF_MODEL --positive_methods $POS_METHODS --negative_methods $NEG_METHODS --validate_every_n_steps $STEPS_PER_VALIDATION --max_train_steps $MAX_STEPS"
+
+if [[ $FROM_CKPT == "fft" ]]
+then
+  PROGRAM_ARGS+=" --contrast_ckpt $CONTRAST_CKPT"
 fi
 
 echo $ACCELERATE_CMD
