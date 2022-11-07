@@ -14,8 +14,6 @@ OBJECTIVE=$5  # unlikelihood, contrast, margin_rank
 EXPERIMENT=$6
 
 # Model Arguments
-NUM_POS=1
-NUM_NEG=1
 METRICS="faithful"
 POS_METHODS="all"
 NEG_METHODS="all"
@@ -39,8 +37,12 @@ fi
 if [[ $OBJECTIVE == "unlikelihood" ]]
 then
   ACCELERATE_CMD=$UNLIKELIHOOD_LAUNCH
+  NUM_POS=1
+  NUM_NEG=1
 else
   ACCELERATE_CMD=$LAUNCH_CMD
+  NUM_POS=2
+  NUM_NEG=2
 fi
 
 echo $ACCELERATE_CMD
