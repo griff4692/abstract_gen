@@ -38,7 +38,9 @@ from tqdm import tqdm
 import torch
 from torch.utils.data import DataLoader
 
+
 # from abstract.model.utils import add_global_attention_mask
+
 
 def add_global_attention_mask(batch):
     global_attention_mask = torch.zeros_like(batch['input_ids']).to(batch['input_ids'].device)
@@ -72,7 +74,7 @@ def main(args):
 
     weight_dir = os.path.join(DATA_DIR, 'weights')
     experiment_dir = os.path.join(weight_dir, args.experiment)
-    args.output_dir = os.path.join(experiment_dir, 'results')
+    args.output_dir = os.path.join(experiment_dir, args.results_name)
     if 'AMLT_OUTPUT_DIR' in os.environ and os.environ['AMLT_OUTPUT_DIR'] is not None:
         singularity_out = os.environ['AMLT_OUTPUT_DIR']
         print(f'Running on singularity. Saving results to {singularity_out} instead of {args.output_dir}')
@@ -82,7 +84,12 @@ def main(args):
     os.makedirs(args.output_dir, exist_ok=True)
     print(f'Saving all outputs to {args.output_dir}')
 
-    ckpt_dir = os.path.join(experiment_dir, 'best_ckpt')
+    out_fn = os.path.join(args.output_dir, 'predictions.csv')
+    if os.path.exists(out_fn) and not args.overwrite:
+        print(f'Run with -overwrite to re-produce {out_fn}')
+        exit(0)
+
+    ckpt_dir = os.path.join(experiment_dir, args.ckpt_name)
     tokenizer_dir = os.path.join(experiment_dir, 'tokenizer')
 
     print(f'Loading config from {args.hf_path}')
@@ -174,7 +181,6 @@ def main(args):
                 data_idx += 1
 
     outputs = pd.DataFrame(outputs)
-    out_fn = os.path.join(args.output_dir, 'predictions.csv')
     print(f'Saving {len(outputs)} outputs to {out_fn}')
     outputs.to_csv(out_fn, index=False)
 
@@ -186,13 +192,16 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Inference for summarization models')
 
-    parser.add_argument('--hf_model', default='t5', choices=['primera', 't5'])
+    parser.add_argument('--hf_model', default='primera', choices=['primera', 't5'])
     parser.add_argument('--experiment', default='long_t5_ft_pubmed')  # WandB name
+    parser.add_argument('--ckpt_name', default='best_ckpt')
+    parser.add_argument('--results_name', default='results')
     parser.add_argument('--num_beams', default=1, type=int)
     parser.add_argument('--max_test_examples', default=2000, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--device', default=0, type=int)
     parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('-overwrite', default=False, action='store_true')
 
     args = parser.parse_args()
     main(args)

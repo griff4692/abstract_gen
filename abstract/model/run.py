@@ -888,17 +888,13 @@ def main():
             contrast_losses['contrast_nll'] = torch.stack(all_contrast_nll).mean()
         elif args.contrast_objective == 'margin_rank':  # BRIO https://arxiv.org/pdf/2203.16804.pdf
             loss_fct = nn.CrossEntropyLoss(reduction='none')
-            nll = loss_fct(contrast_output.logits.view(-1, model.config.vocab_size), contrast_labels.view(-1)).view(
+            V = config.vocab_size
+            nll = loss_fct(contrast_output.logits.view(-1, V), contrast_labels.view(-1)).view(
                 bsize, c_set_size, target_len
             )
             seq_lens = (contrast_labels > -100).sum(dim=2)
 
             scores = - nll.sum(dim=2) / seq_lens
-
-            gold_nll = loss_fct(outputs.logits.view(-1, model.config.vocab_size), gold_labels.view(-1)).view(bsize, -1)
-            gold_lens = (gold_labels > -100).sum(dim=1, keepdim=True)
-
-            gold_scores = - gold_nll.sum(dim=1) / gold_lens
 
             contrast_loss = 0
             for cand_idx in range(1, c_set_size):
@@ -914,6 +910,9 @@ def main():
             predicted_idx = np.mean(scores.argmax(dim=1).cpu().numpy())
             contrast_stats['predicted_rank_idx'].append(predicted_idx)
 
+            gold_nll = loss_fct(outputs.logits.view(-1, V), gold_labels.view(-1)).view(bsize, -1)
+            gold_lens = (gold_labels > -100).sum(dim=1, keepdim=True)
+            gold_scores = - gold_nll.sum(dim=1, keepdim=True) / gold_lens
             pos_score = gold_scores.expand_as(scores)
             neg_score = scores
             pos_score = pos_score.contiguous().view(-1)

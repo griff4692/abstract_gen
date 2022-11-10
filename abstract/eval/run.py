@@ -334,7 +334,10 @@ if __name__ == '__main__':
         
         dfs = [pd.read_csv(fn) for fn in fns]
         lens = [len(x) for x in dfs]
-        assert len(set(lens)) == 1
+        if len(set(lens)) != 1:
+            for fn, l, in zip(fns, lens):
+                print(fn + ' -> ' + str(l))
+            raise Exception('Merge files not the same length')
 
         merged = dfs[0]
         cols = merged.columns

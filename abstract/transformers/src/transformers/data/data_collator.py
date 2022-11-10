@@ -726,7 +726,26 @@ class DataCollatorForContrastSeq2Seq:
                 x for x in cset if self.method_match(x['method'], self.mixed_methods)
             ]
         else:
-            raise Exception('Cant yet use pos/negative methods for soft sets')
+            pos = [x for x in cset if x['sign'] == 'positive']
+            neg = [x for x in cset if x['sign'] == 'negative']
+
+            pos_order = self.order([x for x in pos if self.method_match(x, self.positive_methods)])
+            neg_order = self.order([x for x in neg if self.method_match(x, self.negative_methods)])
+
+            num_pos_sample = min(len(pos_order), self.max_num_positive)
+            num_neg_sample = min(len(neg_order), self.max_num_negative)
+            sample_pos_idxs = np.sort(
+                np.random.choice(np.arange(len(pos_order)), size=(num_pos_sample,), replace=False))
+            sample_neg_idxs = np.sort(
+                np.random.choice(np.arange(len(neg_order)), size=(num_neg_sample,), replace=False))
+            pos_sample = [pos_order[i]['prediction'] for i in sample_pos_idxs]
+            neg_sample = [neg_order[i]['prediction'] for i in sample_neg_idxs]
+
+            full_soft = pos_sample + neg_sample
+            last = full_soft[-1]
+            for _ in range(self.max_num_positive + self.max_num_negative - len(full_soft)):
+                full_soft.append(last)
+            return full_soft
 
         cset_ordered = self.order(cset_filt)
         n = len(cset_ordered)
