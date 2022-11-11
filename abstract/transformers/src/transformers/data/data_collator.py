@@ -687,6 +687,14 @@ class DataCollatorForContrastSeq2Seq:
                 neg_candidates = cset_filt_ordered[mid_pt:]
 
                 pos_n = len(pos_candidates)
+                neg_n = len(neg_candidates)
+                print(neg_n, pos_n)
+                if pos_n == 0:
+                    pos_candidates = [[x for x in cset if x['sign'] == 'positive'][0]]
+                    pos_n = 1
+                if neg_n == 0:
+                    neg_candidates = [[x for x in cset if x['sign'] == 'negative'][0]]
+                    neg_n = 1
                 if self.reference_status == 'ensure':
                     reference = [x for x in cset if x['method'] == 'reference']
                     assert len(reference) == 1
@@ -694,15 +702,16 @@ class DataCollatorForContrastSeq2Seq:
                     pos_idx = 0
                     if self.max_num_positive - 1 > 0:
                         non_ref_range = np.arange(1, pos_n + 1)
-                        pos_idx += list(sorted(np.random.choice(non_ref_range, size=self.max_num_positive - 1, replace=False)))
+                        pos_idx += list(sorted(
+                            np.random.choice(non_ref_range, size=self.max_num_positive - 1, replace=False)))
                 else:
-                    pos_idxs = list(sorted(np.random.choice(np.arange(pos_n), size=self.max_num_positive, replace=False)))
+                    pos_idxs = list(sorted(
+                        np.random.choice(np.arange(pos_n), size=self.max_num_positive, replace=False)))
                 pos_keep = [pos_candidates[i]['prediction'] for i in pos_idxs]
                 last_pos = pos_keep[-1]
                 for _ in range(self.max_num_negative - len(pos_keep)):
                     pos_keep.append(last_pos)
 
-                neg_n = len(neg_candidates)
                 neg_idxs = list(sorted(np.random.choice(np.arange(neg_n), size=self.max_num_negative, replace=False)))
                 neg_keep = [neg_candidates[i]['prediction'] for i in neg_idxs]
                 last_neg = neg_keep[-1]
