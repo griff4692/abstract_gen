@@ -576,7 +576,6 @@ class DataCollatorForContrastSeq2Seq:
         import numpy as np
         n = len(arr)
         target_n = self.max_num_positive + self.max_num_negative
-        # assert n >= target_n
         if target_n > n:
             print('Warning! Target contrast set is larger than available sets. Duplicating but should error out.')
             final = arr[-1]
@@ -679,7 +678,7 @@ class DataCollatorForContrastSeq2Seq:
     def select_hard_set(self, cset):
         if self.use_mixed_methods:
             cset_filt = [
-                x for x in cset if self.method_match(x['method'], self.mixed_methods)
+                x for x in cset if self.method_match(x['method'], self.mixed_methods) and x['sign'] == 'mixed'
             ]
             cset_filt_ordered = self.order(cset_filt)
             if self.contrast_sample_strategy == 'random':
@@ -689,20 +688,26 @@ class DataCollatorForContrastSeq2Seq:
 
                 pos_n = len(pos_candidates)
                 if self.reference_status == 'ensure':
-                    reference = [x for x in cset_filt if x['method'] == 'reference']
+                    reference = [x for x in cset if x['method'] == 'reference']
                     assert len(reference) == 1
                     pos_candidates.insert(0, reference[0])
                     pos_idx = 0
                     if self.max_num_positive - 1 > 0:
-                        non_ref_range = np.arange(1, len(pos_n))
+                        non_ref_range = np.arange(1, pos_n + 1)
                         pos_idx += list(sorted(np.random.choice(non_ref_range, size=self.max_num_positive - 1, replace=False)))
                 else:
-                    pos_idxs = list(sorted(np.random.choice(np.arange(len(pos_n)), size=self.max_num_positive, replace=False)))
+                    pos_idxs = list(sorted(np.random.choice(np.arange(pos_n), size=self.max_num_positive, replace=False)))
                 pos_keep = [pos_candidates[i]['prediction'] for i in pos_idxs]
+                last_pos = pos_keep[-1]
+                for _ in range(self.max_num_negative - len(pos_keep)):
+                    pos_keep.append(last_pos)
 
                 neg_n = len(neg_candidates)
-                neg_idxs = list(sorted(np.random.choice(np.arange(len(neg_n)), size=self.max_num_negative, replace=False)))
+                neg_idxs = list(sorted(np.random.choice(np.arange(neg_n), size=self.max_num_negative, replace=False)))
                 neg_keep = [neg_candidates[i]['prediction'] for i in neg_idxs]
+                last_neg = neg_keep[-1]
+                for _ in range(self.max_num_negative - len(neg_keep)):
+                    neg_keep.append(last_neg)
             else:
                 raise Exception('Not implemented')
         else:
@@ -710,6 +715,7 @@ class DataCollatorForContrastSeq2Seq:
             neg = [x for x in cset if x['sign'] == 'negative']
             pos_keep = self.select_positive(pos)
             neg_keep = self.select_negative(neg)
+
         return pos_keep + neg_keep
 
     def order(self, cset):
@@ -723,8 +729,27 @@ class DataCollatorForContrastSeq2Seq:
     def select_soft_set(self, cset):
         if self.use_mixed_methods:
             cset_filt = [
-                x for x in cset if self.method_match(x['method'], self.mixed_methods)
+                x for x in cset if self.method_match(x['method'], self.mixed_methods) and x['sign'] == 'mixed'
             ]
+
+            cset_ordered = self.order(cset_filt)
+            n = len(cset_ordered)
+            keep_n = min(n, self.max_num_rank)
+            # TODO intra sample strategies
+            if self.contrast_sample_strategy == 'random':
+                keep_idxs = list(sorted(np.random.choice(np.arange(n), size=(keep_n, ), replace=False)))
+                final_set = []
+                for idx in keep_idxs:
+                    final_set.append(cset_ordered[idx]['prediction'])
+            else:
+                raise Exception('Not implemented')
+
+            if len(final_set) == 0:
+                final_set = [x['prediction'] for x in cset if x['method'] == 'reference']
+            last = final_set[-1]
+            for _ in range(self.max_num_rank - len(final_set)):
+                final_set.append(last)
+            return final_set
         else:
             pos = [x for x in cset if x['sign'] == 'positive']
             neg = [x for x in cset if x['sign'] == 'negative']
@@ -746,19 +771,6 @@ class DataCollatorForContrastSeq2Seq:
             for _ in range(self.max_num_positive + self.max_num_negative - len(full_soft)):
                 full_soft.append(last)
             return full_soft
-
-        cset_ordered = self.order(cset_filt)
-        n = len(cset_ordered)
-        keep_n = min(n, self.max_num_rank)
-        # TODO intra sample strategies
-        if self.contrast_sample_strategy == 'random':
-            keep_idxs = list(sorted(np.random.choice(np.arange(n), size=(keep_n), replace=False)))
-            final_set = []
-            for idx in keep_idxs:
-                final_set.append(cset_ordered[idx]['prediction'])
-        else:
-            raise Exception('Not implemented')
-        return final_set
 
     def __call__(self, features, return_tensors=None):
         uuids = [feature.pop('uuid') for feature in features]

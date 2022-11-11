@@ -23,4 +23,5 @@ do
   CUDA_VISIBLE_DEVICES=$DEVICE bash run_all.sh $DATASET $OUT_FN
   cd ../model
 done
+
 echo "Fini!"

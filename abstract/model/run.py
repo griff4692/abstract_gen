@@ -451,6 +451,7 @@ def parse_args():
     # For ranking objective
     # Table 13 lambda https://arxiv.org/pdf/2203.16804.pdf this is 0.001
     parser.add_argument('--contrast_rank_margin', default=0.001, type=float)
+    parser.add_argument('--length_penalty', default=1.0, type=float)
     parser.add_argument('--mle_weight', default=1.0, type=float)
 
     args = parser.parse_args()
@@ -894,7 +895,7 @@ def main():
             )
             seq_lens = (contrast_labels > -100).sum(dim=2)
 
-            scores = - nll.sum(dim=2) / seq_lens
+            scores = - nll.sum(dim=2) / seq_lens ** args.length_penalty
 
             contrast_loss = 0
             for cand_idx in range(1, c_set_size):
@@ -910,18 +911,19 @@ def main():
             predicted_idx = np.mean(scores.argmax(dim=1).cpu().numpy())
             contrast_stats['predicted_rank_idx'].append(predicted_idx)
 
-            gold_nll = loss_fct(outputs.logits.view(-1, V), gold_labels.view(-1)).view(bsize, -1)
-            gold_lens = (gold_labels > -100).sum(dim=1, keepdim=True)
-            gold_scores = - gold_nll.sum(dim=1, keepdim=True) / gold_lens
-            pos_score = gold_scores.expand_as(scores)
-            neg_score = scores
-            pos_score = pos_score.contiguous().view(-1)
-            neg_score = neg_score.contiguous().view(-1)
-            ones = torch.ones_like(pos_score)
-            gold_margin = 0
-            loss_func = torch.nn.MarginRankingLoss(gold_margin)
-            gold_weight = 1.0
-            contrast_loss += gold_weight * loss_func(pos_score, neg_score, ones)
+            if args.reference_status == 'ensure':
+                gold_nll = loss_fct(outputs.logits.view(-1, V), gold_labels.view(-1)).view(bsize, -1)
+                gold_lens = (gold_labels > -100).sum(dim=1, keepdim=True)
+                gold_scores = - gold_nll.sum(dim=1, keepdim=True) / gold_lens
+                pos_score = gold_scores.expand_as(scores)
+                neg_score = scores
+                pos_score = pos_score.contiguous().view(-1)
+                neg_score = neg_score.contiguous().view(-1)
+                ones = torch.ones_like(pos_score)
+                gold_margin = 0
+                loss_func = torch.nn.MarginRankingLoss(gold_margin)
+                gold_weight = 1.0
+                contrast_loss += gold_weight * loss_func(pos_score, neg_score, ones)
             contrast_losses['contrast_rank_loss'] = contrast_loss
         else:
             raise Exception('Not implemented yet!')
