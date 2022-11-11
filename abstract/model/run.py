@@ -452,6 +452,7 @@ def parse_args():
     # Table 13 lambda https://arxiv.org/pdf/2203.16804.pdf this is 0.001
     parser.add_argument('--contrast_rank_margin', default=0.001, type=float)
     parser.add_argument('--length_penalty', default=1.0, type=float)
+    parser.add_argument('--margin_scale', type=float, default=1.0)
     parser.add_argument('--mle_weight', default=1.0, type=float)
 
     args = parser.parse_args()
@@ -895,7 +896,7 @@ def main():
             )
             seq_lens = (contrast_labels > -100).sum(dim=2)
 
-            scores = - nll.sum(dim=2) / seq_lens ** args.length_penalty
+            scores = (- nll.sum(dim=2) / seq_lens ** args.length_penalty) * args.margin_scale
 
             contrast_loss = 0
             for cand_idx in range(1, c_set_size):
@@ -914,7 +915,7 @@ def main():
             if args.reference_status == 'ensure':
                 gold_nll = loss_fct(outputs.logits.view(-1, V), gold_labels.view(-1)).view(bsize, -1)
                 gold_lens = (gold_labels > -100).sum(dim=1, keepdim=True)
-                gold_scores = - gold_nll.sum(dim=1, keepdim=True) / gold_lens
+                gold_scores = (- gold_nll.sum(dim=1, keepdim=True) / gold_lens) * args.margin_scale
                 pos_score = gold_scores.expand_as(scores)
                 neg_score = scores
                 pos_score = pos_score.contiguous().view(-1)

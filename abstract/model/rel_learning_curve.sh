@@ -49,4 +49,4 @@ fi
 
 echo $ACCELERATE_CMD
 echo $PROGRAM_ARGS
-$ACCELERATE_CMD $PROGRAM_ARGS --experiment $EXPERIMENT -save_every_time --contrast_weight 0.01
+$ACCELERATE_CMD $PROGRAM_ARGS --experiment $EXPERIMENT -save_every_time --contrast_weight 0.01 --length_penalty 2.0
