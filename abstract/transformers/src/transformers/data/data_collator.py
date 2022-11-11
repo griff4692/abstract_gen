@@ -705,14 +705,15 @@ class DataCollatorForContrastSeq2Seq:
                         pos_idx += list(sorted(
                             np.random.choice(non_ref_range, size=self.max_num_positive - 1, replace=False)))
                 else:
+                    assert pos_n > 0
                     pos_idxs = list(sorted(
-                        np.random.choice(np.arange(pos_n), size=self.max_num_positive, replace=False)))
+                        np.random.choice(np.arange(pos_n), size=min(pos_n, self.max_num_positive), replace=False)))
                 pos_keep = [pos_candidates[i]['prediction'] for i in pos_idxs]
                 last_pos = pos_keep[-1]
                 for _ in range(self.max_num_negative - len(pos_keep)):
                     pos_keep.append(last_pos)
 
-                neg_idxs = list(sorted(np.random.choice(np.arange(neg_n), size=self.max_num_negative, replace=False)))
+                neg_idxs = list(sorted(np.random.choice(np.arange(neg_n), size=min(neg_n, self.max_num_negative), replace=False)))
                 neg_keep = [neg_candidates[i]['prediction'] for i in neg_idxs]
                 last_neg = neg_keep[-1]
                 for _ in range(self.max_num_negative - len(neg_keep)):
