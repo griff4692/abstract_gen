@@ -688,7 +688,6 @@ class DataCollatorForContrastSeq2Seq:
 
                 pos_n = len(pos_candidates)
                 neg_n = len(neg_candidates)
-                print(neg_n, pos_n)
                 if pos_n == 0:
                     pos_candidates = [[x for x in cset if x['sign'] == 'positive'][0]]
                     pos_n = 1

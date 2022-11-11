@@ -27,15 +27,14 @@ LAUNCH_CMD="accelerate launch --main_process_port=$PORT --mixed_precision=fp16 -
 # Can't use mixed precision for unlikelihood
 UNLIKELIHOOD_LAUNCH="accelerate launch --main_process_port=$PORT --mixed_precision=no --use_deepspeed --gpu_ids=$DEVICE --num_machines=1 --gradient_accumulation_steps=$GRAD_ACCUM --zero_stage=$STAGE --offload_optimizer=cpu run.py"
 
+NUM_CAND=4
 if [[ $OBJECTIVE == "unlikelihood" ]]
 then
   ACCELERATE_CMD=$UNLIKELIHOOD_LAUNCH
-  NUM_CAND=4
-  NUM_POS=2
-  NUM_NEG=2
+  NUM_POS=1
+  NUM_NEG=1
 else
   ACCELERATE_CMD=$LAUNCH_CMD
-  NUM_CAND=4
   NUM_POS=2
   NUM_NEG=2
 fi
