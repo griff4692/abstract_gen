@@ -414,6 +414,7 @@ def parse_args():
         help="If the training should continue from a checkpoint folder.",
     )
     parser.add_argument('--optimizer', default='adam')
+    parser.add_argument('-clip_gradients', default=False, action='store_true')
     parser.add_argument('--validate_every_n_steps', default=1000, type=int)
     parser.add_argument('--max_val_examples', default=256, type=int)
     parser.add_argument('-save_every_time', default=False, action='store_true')
@@ -1105,7 +1106,8 @@ def main():
                         logger.info(f'Train Contrast {k} Loss: {v}')
 
             accelerator.backward(optimizer_loss)
-            # accelerator.clip_grad_norm_(model.parameters(), 1.0)
+            if args.clip_gradients:
+                accelerator.clip_grad_norm_(model.parameters(), 1.0)
             if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
                 optimizer.step()
                 lr_scheduler.step()
