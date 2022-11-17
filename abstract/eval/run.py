@@ -6,7 +6,6 @@ from datasets import load_metric
 import pandas as pd
 import nltk
 import numpy as np
-# import multiprocessing
 from collections import defaultdict
 from tqdm import tqdm
 from p_tqdm import p_uimap
@@ -286,16 +285,18 @@ if __name__ == '__main__':
     metric_suffix = 'metrics' if args.metric is None else args.metric
     out_fn = prediction_fn.replace('.csv', '') + f'_with_{metric_suffix}.csv'
 
+    if args.mode == 'to_table':
+        if 'with_metrics' not in prediction_fn:
+            prediction_fn = prediction_fn.replace('.csv', '') + f'_with_metrics.csv'
+        df = pd.read_csv(prediction_fn)
+        df_to_table(df)
+        exit(0)
+
     if os.path.exists(out_fn):
         print(f'Metric outfile already exists -> {out_fn}')
         if not args.overwrite:
             print('Exiting. Must run with -overwrite to re-run this evaluation.')
             exit(0)
-
-    if args.mode == 'to_table':
-        df = pd.read_csv(prediction_fn)
-        df_to_table(df)
-        exit(0)
 
     if args.mode == 'merge_chunks':
         in_pattern = prediction_fn.replace('.csv', '') + '_with_metrics_\d_\d.csv'

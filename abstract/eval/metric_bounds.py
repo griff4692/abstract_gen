@@ -1,12 +1,8 @@
-from collections import defaultdict
 import os
-from glob import glob
 import ujson
 
 import argparse
-import numpy as np
 import pandas as pd
-from tqdm import tqdm
 
 from abstract.eval.run import METRIC_COLS
 
@@ -14,40 +10,22 @@ from abstract.eval.run import METRIC_COLS
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Summary Metric Statistics for Corruptions')
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
-    parser.add_argument('--datasets', default='pubmed,clinical,chemistry')
+    parser.add_argument('--datasets', default='clinical,chemistry,pubmed')
+    parser.add_argument('--experiment', default='primera_ft_{}')
 
     args = parser.parse_args()
 
-    out_fn = os.path.join(args.data_dir, 'metric_bounds.csv')
-
     out_df = []
     for dataset in args.datasets.split(','):
-        corruption_dir = os.path.join(args.data_dir, dataset, 'corruptions', 'validation')
-        pattern = os.path.join(corruption_dir, '*.json')
-        fns = list(glob(pattern))
-        metric_vals = defaultdict(list)
-        for fn in tqdm(fns):
-            with open(fn, 'r') as fd:
-                ex = ujson.load(fd)
-                for x in ex:
-                    for col in METRIC_COLS:
-                        metric_vals[col].append(x[col])
+        results_fn = os.path.join(
+            args.data_dir, 'weights', args.experiment.format(dataset), 'results', 'predictions_with_metrics.csv'
+        )
+        stats = {}
+        results_df = pd.read_csv(results_fn)
+        for col in METRIC_COLS:
+            stats[col] = {'mean': results_df[col].mean(), 'std': results_df[col].std()}
 
-            for metric, vals in metric_vals.items():
-                avg = np.mean(vals)
-                std = np.std(vals)
-                min_val, max_val = min(vals), max(vals)
-                row = {
-                    'dataset': dataset,
-                    'metric': metric,
-                    'avg': avg,
-                    'std': std,
-                    'min': min_val,
-                    'max': max_val
-                }
-
-                out_df.append(row)
-
-    out_df = pd.DataFrame(out_df)
-    print(f'Saving metric bounds to {out_fn}')
-    out_df.to_csv(out_fn, index=False)
+        out_fn = os.path.join(args.data_dir, f'{dataset}_metric_bounds.json')
+        print(f'Saving statistics to {out_fn}')
+        with open(out_fn, 'w') as fd:
+            ujson.dump(stats, fd)

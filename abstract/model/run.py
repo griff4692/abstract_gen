@@ -414,9 +414,9 @@ def parse_args():
         help="If the training should continue from a checkpoint folder.",
     )
     parser.add_argument('--optimizer', default='adam')
-    parser.add_argument('-clip_gradients', default=False, action='store_true')
+    parser.add_argument('-no_gradient_clip', default=False, action='store_true')
     parser.add_argument('--validate_every_n_steps', default=1000, type=int)
-    parser.add_argument('--max_val_examples', default=256, type=int)
+    parser.add_argument('--max_val_examples', default=2048, type=int)
     parser.add_argument('-save_every_time', default=False, action='store_true')
 
     # Contrast hyper-parameters
@@ -453,7 +453,7 @@ def parse_args():
     # Table 13 lambda https://arxiv.org/pdf/2203.16804.pdf this is 0.001
     parser.add_argument('--contrast_rank_margin', default=0.001, type=float)
     parser.add_argument('--length_penalty', default=1.0, type=float)
-    parser.add_argument('--margin_scale', type=float, default=1.0)
+    parser.add_argument('--margin_scale', type=float, default=0.001)
     parser.add_argument('--mle_weight', default=1.0, type=float)
 
     args = parser.parse_args()
@@ -646,6 +646,9 @@ def main():
         pad_multiple = 8 if accelerator.use_fp16 else None
 
     if args.contrast:
+        metric_norm_fn = os.path.join(DATA_DIR, f'{args.dataset}_metric_bounds.json')
+        with open(metric_norm_fn, 'r') as fd:
+            stats = ujson.load(fd)
         if args.contrast_metrics == 'faithful':
             contrast_metrics = ['bs_src_precision', 'fact_score', 'bart_score']
         elif args.contrast_metrics == 'relevance':
@@ -653,6 +656,12 @@ def main():
         else:
             contrast_metrics = args.contrast_metrics.split(',')
 
+        def score_candidate_fn(row):
+            norm_vals = []
+            for metric in contrast_metrics:
+                stat = stats[metric]
+                norm_vals.append((row[metric] - stat['mean']) / stat['std'])
+            return sum(norm_vals) / len(norm_vals)
         logger.info(contrast_metrics)
 
         assert all([x in CONTRAST_METRIC_LIBRARY for x in contrast_metrics])
@@ -667,7 +676,7 @@ def main():
             set_type='soft' if args.contrast_objective == 'margin_rank' else 'hard',
             contrast_dir=contrast_dir,
             split='train',
-            contrast_metrics=contrast_metrics,
+            score_candidate_fn=score_candidate_fn,
             max_num_positive=args.max_num_positive,
             max_num_negative=args.max_num_negative,
             max_num_rank=args.max_num_rank,
@@ -688,7 +697,7 @@ def main():
             set_type='soft' if args.contrast_objective == 'margin_rank' else 'hard',
             contrast_dir=contrast_dir,
             split='validation',
-            contrast_metrics=contrast_metrics,
+            score_candidate_fn=score_candidate_fn,
             max_num_positive=args.max_num_positive,
             max_num_negative=args.max_num_negative,
             max_num_rank=args.max_num_rank,
@@ -1106,7 +1115,7 @@ def main():
                         logger.info(f'Train Contrast {k} Loss: {v}')
 
             accelerator.backward(optimizer_loss)
-            if args.clip_gradients:
+            if not args.no_gradient_clip:
                 accelerator.clip_grad_norm_(model.parameters(), 1.0)
             if step % args.gradient_accumulation_steps == 0 or step == len(train_dataloader) - 1:
                 optimizer.step()
@@ -1189,13 +1198,6 @@ def main():
                 },
                 f,
             )
-    # if not args.skip_inference:
-    #     args.batch_size = 16  # For inference
-    #     args.max_test_examples = 10000
-    #     args.num_beams = 1
-    #     args.device = 0
-    #     logger.info('Running inference on test set...')
-    #     main_inference(args)
 
 
 if __name__ == '__main__':

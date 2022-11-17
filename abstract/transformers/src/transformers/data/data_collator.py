@@ -555,7 +555,7 @@ class DataCollatorForContrastSeq2Seq:
     mixed_methods: List[str]
     use_mixed_methods: bool
     reference_status: str
-    contrast_metrics: List[str]
+    score_candidate_fn: Callable
     model: Optional[Any] = None
     set_type: Optional[str] = 'hard'
     contrast_dir: str = None
@@ -566,16 +566,15 @@ class DataCollatorForContrastSeq2Seq:
     max_target_length: Optional[int] = 1024
     pad_to_multiple_of: Optional[int] = None
     label_pad_token_id: int = -100
-    return_tensors: str = "pt"
+    return_tensors: str = 'pt'
     max_num_positive: int = 3
     max_num_negative: int = 3
     max_num_rank: int = 3
     contrast_sample_strategy: str = 'random'
 
-    def subsample(self, arr):
+    def subsample(self, arr, target_n, strategy):
         import numpy as np
         n = len(arr)
-        target_n = self.max_num_positive + self.max_num_negative
         if target_n > n:
             print('Warning! Target contrast set is larger than available sets. Duplicating but should error out.')
             final = arr[-1]
@@ -586,30 +585,33 @@ class DataCollatorForContrastSeq2Seq:
         if n == target_n:
             return arr
 
-        if self.contrast_sample_strategy == 'random':
+        if strategy == 'random':
             idxs_to_keep = np.arange(n)
             np.random.shuffle(idxs_to_keep)
             idxs_to_keep = idxs_to_keep[:target_n]
-        elif self.contrast_sample_strategy == 'max_margin':
-            idxs_to_keep = list(range(self.max_num_positive)) + [n - 1 - x for x in range(self.max_num_negative)]
-        elif self.contrast_sample_strategy == 'min_margin':
+        elif strategy == 'max_margin':
+            mid_target = target_n // 2
+            idxs_to_keep = list(range(mid_target)) + [n - 1 - x for x in range(mid_target)]
+        elif strategy == 'min_margin':
+            mid_target = target_n // 2
             mid_idx = n // 2
-            min_idx = mid_idx - target_n // 2
-            max_idx = mid_idx + target_n // 2
+            min_idx = mid_idx - mid_target
+            max_idx = mid_idx + mid_target
             idxs_to_keep = list(range(min_idx, max_idx))
-        elif self.contrast_sample_strategy == 'max_value':
+        elif strategy == 'max_value':
             idxs_to_keep = list(range(target_n))
-        elif self.contrast_sample_strategy == 'min_value':
+        elif strategy == 'min_value':
             idxs_to_keep = [n - 1 - x for x in range(target_n)]
-        elif self.contrast_sample_strategy == 'most_diverse':
+        elif strategy == 'most_diverse':
             raise Exception('Please implement me by calling eval.diversity function')
-        elif self.contrast_sample_strategy == 'least_diverse':
+        elif strategy == 'least_diverse':
             raise Exception('Please implement me by calling eval.diversity function')
-        elif self.contrast_sample_strategy == 'most_likely':
+        elif strategy == 'most_likely':
             raise Exception('Please implement me by calling looking up bartscore')
-        elif self.contrast_sample_strategy == 'least_likely':
+        elif strategy == 'least_likely':
             raise Exception('Please implement me by calling looking up bartscore')
-        return [arr[i] for i in np.sort(idxs_to_keep)]
+        idxs_to_keep = list(np.sort(idxs_to_keep))
+        return [arr[i] for i in idxs_to_keep]
 
     def select_positive(self, cset):
         cset_filt = self.order([x for x in cset if self.method_match(x, self.positive_methods)])
@@ -621,33 +623,17 @@ class DataCollatorForContrastSeq2Seq:
             summaries = [x['prediction'] for x in non_ref]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative) - 1
-            # TODO intra sample strategies
-            if self.contrast_sample_strategy == 'random':
-                np.random.shuffle(summaries)
-            else:
-                raise Exception('Not implemented')
-            keep_summaries = [reference[0]['prediction']] + summaries[:keep_n]
+            keep_summaries = [reference[0]['prediction']] + self.subsample(summaries, keep_n)
         elif self.reference_status == 'remove':
             summaries = [x['prediction'] for x in non_ref]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative)
-            # TODO intra sample strategies
-            if self.contrast_sample_strategy == 'random':
-                np.random.shuffle(summaries)
-            else:
-                raise Exception('Not implemented')
-            keep_summaries = summaries[:keep_n]
+            keep_summaries = self.subsample(summaries, keep_n)
         else:
             summaries = [x['prediction'] for x in reference + non_ref]
             n = len(summaries)
             keep_n = min(n, self.max_num_positive)
-            # TODO intra sample strategies
-            if self.contrast_sample_strategy == 'random':
-                np.random.shuffle(summaries)
-            else:
-                raise Exception('Not implemented')
-            keep_summaries = summaries[:keep_n]
-        keep_summaries = list(keep_summaries)
+            keep_summaries = self.subsample(summaries, keep_n)
         last = keep_summaries[-1]
         for _ in range(self.max_num_positive - len(keep_summaries)):
             keep_summaries.append(last)
@@ -677,88 +663,44 @@ class DataCollatorForContrastSeq2Seq:
 
     def select_hard_set(self, cset):
         if self.use_mixed_methods:
-            cset_filt = [
-                x for x in cset if self.method_match(x['method'], self.mixed_methods) and x['sign'] == 'mixed'
-            ]
-            cset_filt_ordered = self.order(cset_filt)
-            if self.contrast_sample_strategy == 'random':
-                mid_pt = len(cset_filt_ordered) // 2
-                pos_candidates = cset_filt_ordered[:mid_pt]
-                neg_candidates = cset_filt_ordered[mid_pt:]
-
-                pos_n = len(pos_candidates)
-                neg_n = len(neg_candidates)
-                if pos_n == 0:
-                    pos_candidates = [[x for x in cset if x['sign'] == 'positive'][0]]
-                    pos_n = 1
-                if neg_n == 0:
-                    neg_candidates = [[x for x in cset if x['sign'] == 'negative'][0]]
-                    neg_n = 1
-                if self.reference_status == 'ensure':
-                    reference = [x for x in cset if x['method'] == 'reference']
-                    assert len(reference) == 1
-                    pos_candidates.insert(0, reference[0])
-                    pos_idx = 0
-                    if self.max_num_positive - 1 > 0:
-                        non_ref_range = np.arange(1, pos_n + 1)
-                        pos_idx += list(sorted(
-                            np.random.choice(non_ref_range, size=self.max_num_positive - 1, replace=False)))
-                else:
-                    assert pos_n > 0
-                    pos_idxs = list(sorted(
-                        np.random.choice(np.arange(pos_n), size=min(pos_n, self.max_num_positive), replace=False)))
-                pos_keep = [pos_candidates[i]['prediction'] for i in pos_idxs]
-                last_pos = pos_keep[-1]
-                for _ in range(self.max_num_negative - len(pos_keep)):
-                    pos_keep.append(last_pos)
-
-                neg_idxs = list(sorted(np.random.choice(np.arange(neg_n), size=min(neg_n, self.max_num_negative), replace=False)))
-                neg_keep = [neg_candidates[i]['prediction'] for i in neg_idxs]
-                last_neg = neg_keep[-1]
-                for _ in range(self.max_num_negative - len(neg_keep)):
-                    neg_keep.append(last_neg)
-            else:
-                raise Exception('Not implemented')
+            return self.select_mixed_methods(cset, self.max_num_positive + self.max_num_negative)
         else:
             pos = [x for x in cset if x['sign'] == 'positive']
             neg = [x for x in cset if x['sign'] == 'negative']
             pos_keep = self.select_positive(pos)
             neg_keep = self.select_negative(neg)
 
-        return pos_keep + neg_keep
+            return pos_keep + neg_keep
 
     def order(self, cset):
         for cs in cset:
-            cs['sort_key'] = np.mean([cs[metric] for metric in self.contrast_metrics])
+            cs['sort_key'] = self.score_candidate_fn(cs)
             if self.metric_mode == 'max':
                 cs['sort_key'] = - cs['sort_key']  # Want larger (better at the front)
         cset_ordered = list(sorted(cset, key=lambda x: x['sort_key']))
         return cset_ordered
 
+    def select_mixed_methods(self, cset, target_n):
+        cset_filt = [
+            x for x in cset if self.method_match(x['method'], self.mixed_methods) and x['sign'] == 'mixed'
+        ]
+
+        cset_ordered = self.order(cset_filt)
+        n = len(cset_ordered)
+        keep_n = min(n, target_n)
+
+        summaries = [x['prediction'] for x in cset_ordered]
+        keep_summaries = self.subsample(summaries, keep_n, strategy=self.contrast_sample_strategy)
+        if len(keep_summaries) == 0:
+            keep_summaries = [x['prediction'] for x in cset if x['method'] == 'reference']
+        last = keep_summaries[-1]
+        for _ in range(target_n - len(keep_summaries)):
+            keep_summaries.append(last)
+        return keep_summaries
+
     def select_soft_set(self, cset):
         if self.use_mixed_methods:
-            cset_filt = [
-                x for x in cset if self.method_match(x['method'], self.mixed_methods) and x['sign'] == 'mixed'
-            ]
-
-            cset_ordered = self.order(cset_filt)
-            n = len(cset_ordered)
-            keep_n = min(n, self.max_num_rank)
-            # TODO intra sample strategies
-            if self.contrast_sample_strategy == 'random':
-                keep_idxs = list(sorted(np.random.choice(np.arange(n), size=(keep_n, ), replace=False)))
-                final_set = []
-                for idx in keep_idxs:
-                    final_set.append(cset_ordered[idx]['prediction'])
-            else:
-                raise Exception('Not implemented')
-
-            if len(final_set) == 0:
-                final_set = [x['prediction'] for x in cset if x['method'] == 'reference']
-            last = final_set[-1]
-            for _ in range(self.max_num_rank - len(final_set)):
-                final_set.append(last)
-            return final_set
+            return self.select_mixed_methods(cset, self.max_num_rank)
         else:
             pos = [x for x in cset if x['sign'] == 'positive']
             neg = [x for x in cset if x['sign'] == 'negative']
@@ -766,20 +708,28 @@ class DataCollatorForContrastSeq2Seq:
             pos_order = self.order([x for x in pos if self.method_match(x, self.positive_methods)])
             neg_order = self.order([x for x in neg if self.method_match(x, self.negative_methods)])
 
-            num_pos_sample = min(len(pos_order), self.max_num_positive)
             num_neg_sample = min(len(neg_order), self.max_num_negative)
-            sample_pos_idxs = np.sort(
-                np.random.choice(np.arange(len(pos_order)), size=(num_pos_sample,), replace=False))
-            sample_neg_idxs = np.sort(
-                np.random.choice(np.arange(len(neg_order)), size=(num_neg_sample,), replace=False))
-            pos_sample = [pos_order[i]['prediction'] for i in sample_pos_idxs]
-            neg_sample = [neg_order[i]['prediction'] for i in sample_neg_idxs]
+            num_pos_sample = min(len(pos_order), self.max_num_positive)
 
-            full_soft = pos_sample + neg_sample
-            last = full_soft[-1]
-            for _ in range(self.max_num_positive + self.max_num_negative - len(full_soft)):
-                full_soft.append(last)
-            return full_soft
+            if self.contrast_sample_strategy == 'min_margin':
+                pos_strat = 'min_value'
+                neg_strat = 'max_value'
+            elif self.contrast_sample_strategy == 'max_margin':
+                pos_strat = 'max_value'
+                neg_strat = 'min_value'
+            elif self.contrast_sample_strategy == 'random':
+                neg_strat = pos_strat = 'random'
+            else:
+                raise Exception(f'Implement strategy {self.contrast_sample_strategy}')
+
+            neg_summaries = self.subsample([x['prediction'] for x in neg_order], num_neg_sample, strategy=pos_strat)
+            pos_summaries = self.subsample([x['prediction'] for x in pos_order], num_pos_sample, strategy=neg_strat)
+
+            keep_summaries = pos_summaries + neg_summaries
+            last = keep_summaries[-1]
+            for _ in range(self.max_num_positive + self.max_num_negative - len(keep_summaries)):
+                keep_summaries.append(last)
+            return keep_summaries
 
     def __call__(self, features, return_tensors=None):
         uuids = [feature.pop('uuid') for feature in features]
@@ -801,7 +751,6 @@ class DataCollatorForContrastSeq2Seq:
                 return_tensors=self.return_tensors,  # pad_to_multiple_of=self.pad_to_multiple_of,
             )['input_ids']
             contrast_labels[contrast_labels == self.tokenizer.pad_token_id] = self.label_pad_token_id
-
         if return_tensors is None:
             return_tensors = self.return_tensors
         labels = [feature['labels'] for feature in features] if 'labels' in features[0].keys() else None

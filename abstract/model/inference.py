@@ -84,7 +84,7 @@ def main(args):
     os.makedirs(args.output_dir, exist_ok=True)
     print(f'Saving all outputs to {args.output_dir}')
 
-    out_fn = os.path.join(args.output_dir, 'predictions.csv')
+    out_fn = os.path.join(args.output_dir, f'{args.split}_predictions.csv')
     if os.path.exists(out_fn) and not args.overwrite:
         print(f'Run with -overwrite to re-produce {out_fn}')
         exit(0)
@@ -99,21 +99,21 @@ def main(args):
     tokenizer = tokenizer_constructor.from_pretrained(tokenizer_dir)
 
     config.vocab_size = len(tokenizer)
-    config.contrastive_classifier = False  # Can remove if not using margin
+    config.contrastive_classifier = args.contrast_classifier  # Can remove if not using margin
     print(f'Loading model from {ckpt_dir}')
 
     model = model_constructor.from_pretrained(ckpt_dir, from_tf=False, config=config).to(args.device)
     model.resize_token_embeddings(len(tokenizer))
 
     print(f'Loading custom dataset from {data_path}')
-    predict_dataset = load_from_disk(data_path)['test']
+    predict_dataset = load_from_disk(data_path)[args.split]
     uuids = predict_dataset['uuid']
 
     dataset_cols = list(predict_dataset.features.keys())
     important_cols = [x for x in dataset_cols if x not in {'input_ids', 'attention_mask', 'labels'}]
 
-    if args.max_test_examples is not None and args.max_test_examples < len(predict_dataset):
-        predict_dataset = predict_dataset.select(range(args.max_test_examples))
+    if args.max_examples is not None and args.max_examples < len(predict_dataset):
+        predict_dataset = predict_dataset.select(range(args.max_examples))
 
     # Data collator
     if is_t5:
@@ -197,11 +197,13 @@ if __name__ == '__main__':
     parser.add_argument('--ckpt_name', default='best_ckpt')
     parser.add_argument('--results_name', default='results')
     parser.add_argument('--num_beams', default=1, type=int)
-    parser.add_argument('--max_test_examples', default=2000, type=int)
+    parser.add_argument('--max_examples', default=10000, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--device', default=0, type=int)
     parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('-overwrite', default=False, action='store_true')
+    parser.add_argument('-contrast_classifier', default=False, action='store_true')
+    parser.add_argument('--split', default='test')
 
     args = parser.parse_args()
     main(args)
