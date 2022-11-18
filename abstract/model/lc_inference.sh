@@ -6,8 +6,8 @@ DATASET=$2
 EXPERIMENT=$3
 METRIC=$4
 
-DIR="/home/ga2530/data_tmp/weights/$EXPERIMENT"
-BATCH_SIZE=16
+DIR="${HOME}/data_tmp/weights/$EXPERIMENT"
+INFERENCE_BATCH_SIZE=16
 MAX_EXAMPLES=99999999
 
 SPLIT="validation"
@@ -20,7 +20,7 @@ do
   then
     python "$STEP_DIR/zero_to_fp32.py" $STEP_DIR $OUT_MODEL_FN
   fi
-  python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_EXAMPLES --split $SPLIT
+  python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $INFERENCE_BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_EXAMPLES --split $SPLIT
   cd ../eval
   OUT_FN="${STEP_DIR}/${SPLIT}_predictions.csv"
   CUDA_VISIBLE_DEVICES=$DEVICE bash run_all.sh $DATASET $OUT_FN $METRIC
@@ -41,9 +41,9 @@ done < $BEST_STEP_FN
 CKPT_NAME="ckpt_${BEST_STEP}_steps"
 STEP_DIR="${DIR}/${CKPT_NAME}"
 SPLIT="test"
-python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_EXAMPLES --split $SPLIT
+python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $INFERENCE_BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_EXAMPLES --split $SPLIT
 cd ../eval
 OUT_FN="${STEP_DIR}/${SPLIT}_predictions.csv"
 CUDA_VISIBLE_DEVICES=$DEVICE bash run_all.sh $DATASET $OUT_FN all
-echo "Fini Fini!  Please paste results below into le table..."
+echo "Fini Fini! Please paste results below into le google sheets by experiment ${EXPERIMENT}..."
 python run.py --dataset $DATASET --fp $OUT_FN --mode to_table
