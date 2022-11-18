@@ -16,10 +16,19 @@ if __name__ == '__main__':
     parser.add_argument('--metric', default='relevance')
 
     args = parser.parse_args()
-    pattern = os.path.join(args.data_dir, 'weights', args.experiment, '*', 'predictions_with_metrics.csv')
+    pattern = os.path.join(args.data_dir, 'weights', args.experiment, '*', 'validation_predictions_with_metrics.csv')
 
     print(f'Looking for outputs matching {pattern}')
     fns = list(glob(pattern))
+
+    if len(fns) == 0:
+        # Backwards compatibility
+        pattern = os.path.join(args.data_dir, 'weights', args.experiment, '*', 'predictions_with_metrics.csv')
+        print(f'None found. Looking now for outputs matching {pattern}')
+        fns = list(glob(pattern))
+        if len(fns) == 0:
+            raise Exception('No outputs found.')
+
     metric_norm_fn = os.path.join(args.data_dir, f'{args.dataset}_metric_bounds.json')
     with open(metric_norm_fn, 'r') as fd:
         stats = ujson.load(fd)
