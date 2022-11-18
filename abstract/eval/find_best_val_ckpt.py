@@ -18,6 +18,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
     pattern = os.path.join(args.data_dir, 'weights', args.experiment, '*', 'predictions_with_metrics.csv')
 
+    print(f'Looking for outputs matching {pattern}')
     fns = list(glob(pattern))
     metric_norm_fn = os.path.join(args.data_dir, f'{args.dataset}_metric_bounds.json')
     with open(metric_norm_fn, 'r') as fd:

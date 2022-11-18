@@ -10,9 +10,9 @@ DIR="/home/ga2530/data_tmp/weights/$EXPERIMENT"
 BATCH_SIZE=16
 MAX_EXAMPLES=99999999
 
+SPLIT="validation"
 for STEP in 1000 2000 3000 4000 5000 6000 7000 8000 9000 10000
 do
-  SPLIT="validation"
   CKPT_NAME="ckpt_${STEP}_steps"
   STEP_DIR="${DIR}/${CKPT_NAME}"
   OUT_MODEL_FN="${STEP_DIR}/pytorch_model.bin"
@@ -23,7 +23,7 @@ do
   python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_EXAMPLES --split $SPLIT
   cd ../eval
   OUT_FN="${STEP_DIR}/${SPLIT}_predictions.csv"
-  CUDA_VISIBLE_DEVICES=$DEVICE bash run_all.sh $DATASET $OUT_FN
+  CUDA_VISIBLE_DEVICES=$DEVICE bash run_all.sh $DATASET $OUT_FN $METRIC
   cd ../model
 done
 
@@ -44,6 +44,6 @@ SPLIT="test"
 python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_EXAMPLES --split $SPLIT
 cd ../eval
 OUT_FN="${STEP_DIR}/${SPLIT}_predictions.csv"
-CUDA_VISIBLE_DEVICES=$DEVICE bash run_all.sh $DATASET $OUT_FN
+CUDA_VISIBLE_DEVICES=$DEVICE bash run_all.sh $DATASET $OUT_FN all
 echo "Fini Fini!  Please paste results below into le table..."
 python run.py --dataset $DATASET --fp $OUT_FN --mode to_table

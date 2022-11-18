@@ -4,7 +4,13 @@ set -e
 #FP='/home/ga2530/data_tmp/pubmed/intrinsic_swaps.csv'
 DATASET=$1  # "pubmed"
 FP=$2  # '/home/ga2530/data_tmp/pubmed/mask_and_fill/span_fills.csv'
-METRICS="rouge extractive_fragments bert_score bart_score fact_score"
+if [ $3 == "all" ]; then
+  METRICS="rouge extractive_fragments bert_score bart_score fact_score"
+elif [ $3 == "relevance" ]; then
+  METRICS="rouge bert_score"
+else
+  METRICS="bert_score bart_score fact_score"
+fi
 
 echo $DATASET
 echo $FP
