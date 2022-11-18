@@ -43,5 +43,4 @@ PROGRAM_ARGS="-contrast --contrast_ckpt $CONTRAST_CKPT --max_num_rank $NUM_CAND 
 
 echo $ACCELERATE_CMD
 echo $PROGRAM_ARGS
-exit
 $ACCELERATE_CMD $PROGRAM_ARGS --experiment $EXPERIMENT --contrast_intra_sample_strategy $SAMPLE_STRATEGY -save_every_time
