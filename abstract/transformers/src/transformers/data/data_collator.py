@@ -613,7 +613,7 @@ class DataCollatorForContrastSeq2Seq:
         idxs_to_keep = list(np.sort(idxs_to_keep))
         return [arr[i] for i in idxs_to_keep]
 
-    def select_positive(self, cset):
+    def select_positive(self, cset, strategy):
         cset_filt = self.order([x for x in cset if self.method_match(x, self.positive_methods)])
         reference = [x for x in cset_filt if x['method'] == 'reference']
         assert len(reference) == 1
@@ -623,17 +623,17 @@ class DataCollatorForContrastSeq2Seq:
             summaries = [x['prediction'] for x in non_ref]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative) - 1
-            keep_summaries = [reference[0]['prediction']] + self.subsample(summaries, keep_n)
+            keep_summaries = [reference[0]['prediction']] + self.subsample(summaries, keep_n, strategy)
         elif self.reference_status == 'remove':
             summaries = [x['prediction'] for x in non_ref]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative)
-            keep_summaries = self.subsample(summaries, keep_n)
+            keep_summaries = self.subsample(summaries, keep_n, strategy)
         else:
-            summaries = [x['prediction'] for x in reference + non_ref]
+            summaries = [x['prediction'] for x in cset_filt]
             n = len(summaries)
             keep_n = min(n, self.max_num_positive)
-            keep_summaries = self.subsample(summaries, keep_n)
+            keep_summaries = self.subsample(summaries, keep_n, strategy)
         last = keep_summaries[-1]
         for _ in range(self.max_num_positive - len(keep_summaries)):
             keep_summaries.append(last)
@@ -644,17 +644,13 @@ class DataCollatorForContrastSeq2Seq:
             method = method['method']
         return method in keep_methods or 'all' in keep_methods
 
-    def select_negative(self, cset):
+    def select_negative(self, cset, strategy):
         cset_filt = [x for x in cset if self.method_match(x['method'], self.negative_methods)]
         cset_ordered = self.order(cset_filt)
         summaries = [x['prediction'] for x in cset_ordered]
         n = len(summaries)
         keep_n = min(n, self.max_num_negative)
-        # TODO intra sample strategies
-        if self.contrast_sample_strategy == 'random':
-            np.random.shuffle(summaries)
-        else:
-            raise Exception('Not implemented')
+        self.subsample(summaries, keep_n, strategy)
         keep_summaries = list(summaries[:keep_n])
         last = keep_summaries[-1]
         for _ in range(self.max_num_negative - len(keep_summaries)):
@@ -667,8 +663,20 @@ class DataCollatorForContrastSeq2Seq:
         else:
             pos = [x for x in cset if x['sign'] == 'positive']
             neg = [x for x in cset if x['sign'] == 'negative']
-            pos_keep = self.select_positive(pos)
-            neg_keep = self.select_negative(neg)
+
+            if self.contrast_sample_strategy == 'min_margin':
+                pos_strat = 'min_value'
+                neg_strat = 'max_value'
+            elif self.contrast_sample_strategy == 'max_margin':
+                pos_strat = 'max_value'
+                neg_strat = 'min_value'
+            elif self.contrast_sample_strategy == 'random':
+                neg_strat = pos_strat = 'random'
+            else:
+                raise Exception(f'Implement strategy {self.contrast_sample_strategy}')
+
+            pos_keep = self.select_positive(pos, strategy=pos_strat)
+            neg_keep = self.select_negative(neg, strategy=neg_strat)
 
             return pos_keep + neg_keep
 

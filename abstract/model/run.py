@@ -899,6 +899,7 @@ def main():
                 all_contrast_nll.append(contrast_nll)
             contrast_losses['contrast_nll'] = torch.stack(all_contrast_nll).mean()
         elif args.contrast_objective == 'margin_rank':  # BRIO https://arxiv.org/pdf/2203.16804.pdf
+            # Code borrowed from https://github.com/yixinl7/brio
             loss_fct = nn.CrossEntropyLoss(reduction='none')
             V = config.vocab_size
             nll = loss_fct(contrast_output.logits.view(-1, V), contrast_labels.view(-1)).view(
