@@ -730,8 +730,8 @@ class DataCollatorForContrastSeq2Seq:
             else:
                 raise Exception(f'Implement strategy {self.contrast_sample_strategy}')
 
-            neg_summaries = self.subsample([x['prediction'] for x in neg_order], num_neg_sample, strategy=pos_strat)
-            pos_summaries = self.subsample([x['prediction'] for x in pos_order], num_pos_sample, strategy=neg_strat)
+            neg_summaries = self.subsample([x['prediction'] for x in neg_order], num_neg_sample, strategy=neg_strat)
+            pos_summaries = self.subsample([x['prediction'] for x in pos_order], num_pos_sample, strategy=pos_strat)
 
             keep_summaries = pos_summaries + neg_summaries
             last = keep_summaries[-1]
