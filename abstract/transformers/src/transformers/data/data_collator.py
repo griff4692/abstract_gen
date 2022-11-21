@@ -13,6 +13,7 @@
 # limitations under the License.
 
 import random
+import itertools
 import warnings
 from collections.abc import Mapping
 from dataclasses import dataclass
@@ -24,6 +25,7 @@ import ujson
 from ..models.bert import BertTokenizer, BertTokenizerFast
 from ..tokenization_utils_base import PreTrainedTokenizerBase
 from ..utils import PaddingStrategy
+from abstract.eval.diversity import diversity_score
 
 
 InputDataClass = NewType("InputDataClass", Any)
@@ -572,6 +574,17 @@ class DataCollatorForContrastSeq2Seq:
     max_num_rank: int = 3
     contrast_sample_strategy: str = 'random'
 
+    def sample_for_diversity(self, arr, target_n, maximize=True):
+        n = len(arr)
+        cand_idxs = list(itertools.combinations(np.arange(n), target_n))
+        random.shuffle(cand_idxs)
+        trunc_cands = cand_idxs[:min(len(cand_idxs), 100)]
+        diversities = list(map(lambda idxs: diversity_score([arr[i] for i in idxs]), trunc_cands))
+        if maximize:
+            return trunc_cands[int(np.argmax(diversities))]
+        else:
+            return trunc_cands[int(np.argmin(diversities))]
+
     def subsample(self, arr, target_n, strategy):
         import numpy as np
         n = len(arr)
@@ -602,13 +615,13 @@ class DataCollatorForContrastSeq2Seq:
             idxs_to_keep = list(range(target_n))
         elif strategy == 'min_value':
             idxs_to_keep = [n - 1 - x for x in range(target_n)]
-        elif strategy == 'most_diverse':
-            raise Exception('Please implement me by calling eval.diversity function')
+        elif strategy == 'max_diversity':
+            idxs_to_keep = self.sample_for_diversity(arr, target_n, maximize=True)
         elif strategy == 'least_diverse':
-            raise Exception('Please implement me by calling eval.diversity function')
-        elif strategy == 'most_likely':
+            idxs_to_keep = self.sample_for_diversity(arr, target_n, maximize=False)
+        elif strategy == 'max_likelihood':
             raise Exception('Please implement me by calling looking up bartscore')
-        elif strategy == 'least_likely':
+        elif strategy == 'min_likelihood':
             raise Exception('Please implement me by calling looking up bartscore')
         idxs_to_keep = list(np.sort(idxs_to_keep))
         return [arr[i] for i in idxs_to_keep]
@@ -670,8 +683,8 @@ class DataCollatorForContrastSeq2Seq:
             elif self.contrast_sample_strategy == 'max_margin':
                 pos_strat = 'max_value'
                 neg_strat = 'min_value'
-            elif self.contrast_sample_strategy == 'random':
-                neg_strat = pos_strat = 'random'
+            elif self.contrast_sample_strategy in {'random', 'min_diversity', 'max_diversity'}:
+                neg_strat = pos_strat = self.contrast_sample_strategy
             else:
                 raise Exception(f'Implement strategy {self.contrast_sample_strategy}')
 
@@ -725,8 +738,8 @@ class DataCollatorForContrastSeq2Seq:
             elif self.contrast_sample_strategy == 'max_margin':
                 pos_strat = 'max_value'
                 neg_strat = 'min_value'
-            elif self.contrast_sample_strategy == 'random':
-                neg_strat = pos_strat = 'random'
+            elif self.contrast_sample_strategy in {'random', 'min_diversity', 'max_diversity'}:
+                neg_strat = pos_strat = self.contrast_sample_strategy
             else:
                 raise Exception(f'Implement strategy {self.contrast_sample_strategy}')
 

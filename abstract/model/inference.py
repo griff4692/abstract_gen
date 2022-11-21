@@ -22,7 +22,6 @@ import argparse
 import os
 
 from datasets import load_from_disk, load_metric
-import evaluate
 import nltk  # Here to have a nice missing dependency error message early on
 import numpy as np
 import pandas as pd
