@@ -148,7 +148,8 @@ def main(args):
 
     gen_kwargs = {
         'max_length': args.max_target_length if args is not None else config.max_length,
-        'num_beams': args.num_beams, 'no_repeat_ngram_size': 3, 'early_stopping': True
+        'num_beams': args.num_beams, 'no_repeat_ngram_size': 3, 'early_stopping': True,
+        'length_penalty': args.length_penalty
     }
 
     outputs = []
@@ -204,6 +205,7 @@ if __name__ == '__main__':
     parser.add_argument('-overwrite', default=False, action='store_true')
     parser.add_argument('-contrast_classifier', default=False, action='store_true')
     parser.add_argument('--split', default='test')
+    parser.add_argument('--length_penalty', default='test')
 
     args = parser.parse_args()
     main(args)
