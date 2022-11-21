@@ -189,6 +189,9 @@ def main(args):
     for col in rouge_cols:
         print(f'{col}: {round(outputs[col].dropna().mean(), 2)}')
 
+    pred_len = outputs['prediction'].apply(lambda x: len(x.split(' ')))
+    print(f'Token Lengths: {np.mean(pred_len)}')
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Inference for summarization models')
