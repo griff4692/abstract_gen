@@ -617,7 +617,7 @@ class DataCollatorForContrastSeq2Seq:
             idxs_to_keep = [n - 1 - x for x in range(target_n)]
         elif strategy == 'max_diversity':
             idxs_to_keep = self.sample_for_diversity(arr, target_n, maximize=True)
-        elif strategy == 'least_diverse':
+        elif strategy == 'min_diversity':
             idxs_to_keep = self.sample_for_diversity(arr, target_n, maximize=False)
         elif strategy == 'max_likelihood':
             raise Exception('Please implement me by calling looking up bartscore')
