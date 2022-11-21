@@ -208,7 +208,7 @@ if __name__ == '__main__':
     parser.add_argument('-overwrite', default=False, action='store_true')
     parser.add_argument('-contrast_classifier', default=False, action='store_true')
     parser.add_argument('--split', default='test')
-    parser.add_argument('--length_penalty', default='test')
+    parser.add_argument('--length_penalty', default=1.0, type=float)
 
     args = parser.parse_args()
     main(args)
