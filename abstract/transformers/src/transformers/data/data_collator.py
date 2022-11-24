@@ -585,7 +585,25 @@ class DataCollatorForContrastSeq2Seq:
         else:
             return trunc_cands[int(np.argmin(diversities))]
 
-    def subsample(self, arr, target_n, strategy):
+    def sample_for_metric_gap(self, metrics, target_n, maximize=True):
+        def avg_gap(x):
+            gaps = []
+            for i in range(len(x)):
+                for j in range(i + 1, len(x)):
+                    gaps.append(abs(x[i] - x[j]))
+            return float(np.mean(gaps))
+
+        n = len(metrics)
+        cand_idxs = list(itertools.combinations(np.arange(n), target_n))
+        random.shuffle(cand_idxs)
+        trunc_cands = cand_idxs[:min(len(cand_idxs), 5000)]
+        candidate_gaps = list(map(lambda idxs: avg_gap([metrics[i] for i in idxs]), trunc_cands))
+        if maximize:
+            return trunc_cands[int(np.argmax(candidate_gaps))]
+        else:
+            return trunc_cands[int(np.argmin(candidate_gaps))]
+
+    def subsample(self, arr, target_n, strategy, metrics=None, beams=None):
         import numpy as np
         n = len(arr)
         if target_n > n:
@@ -611,6 +629,14 @@ class DataCollatorForContrastSeq2Seq:
             min_idx = mid_idx - mid_target
             max_idx = mid_idx + mid_target
             idxs_to_keep = list(range(min_idx, max_idx))
+        elif strategy == 'min_metric':
+            idxs_to_keep = [n - 1 - x for x in range(target_n)]
+        elif strategy == 'max_metric':
+            idxs_to_keep = list(range(target_n))
+        elif strategy == 'max_gap':
+            idxs_to_keep = self.sample_for_metric_gap(metrics, target_n, maximize=True)
+        elif strategy == 'min_gap':
+            idxs_to_keep = self.sample_for_metric_gap(metrics, target_n, maximize=False)
         elif strategy == 'max_value':
             idxs_to_keep = list(range(target_n))
         elif strategy == 'min_value':
@@ -619,10 +645,17 @@ class DataCollatorForContrastSeq2Seq:
             idxs_to_keep = self.sample_for_diversity(arr, target_n, maximize=True)
         elif strategy == 'min_diversity':
             idxs_to_keep = self.sample_for_diversity(arr, target_n, maximize=False)
-        elif strategy == 'max_likelihood':
-            raise Exception('Please implement me by calling looking up bartscore')
-        elif strategy == 'min_likelihood':
-            raise Exception('Please implement me by calling looking up bartscore')
+        elif strategy == 'top_beam':
+            beam_order = np.argsort(beams)
+            idxs_to_keep = beam_order[:target_n]
+        elif strategy == 'bottom_beam':
+            beam_order = np.argsort(beams)
+            idxs_to_keep = beam_order[-target_n:]
+        elif strategy == 'wide_beam':
+            beam_order = np.argsort(beams)
+            mid_target = target_n // 2
+            beam_to_keep = list(range(mid_target)) + [n - 1 - x for x in range(mid_target)]
+            idxs_to_keep = [beam_order[i] for i in beam_to_keep]
         idxs_to_keep = list(np.sort(idxs_to_keep))
         return [arr[i] for i in idxs_to_keep]
 
@@ -711,7 +744,13 @@ class DataCollatorForContrastSeq2Seq:
         keep_n = min(n, target_n)
 
         summaries = [x['prediction'] for x in cset_ordered]
-        keep_summaries = self.subsample(summaries, keep_n, strategy=self.contrast_sample_strategy)
+
+        if self.metric_mode == 'max':
+            metrics = [-x['sort_key'] for x in cset_ordered]
+        else:
+            metrics = [x['sort_key'] for x in cset_ordered]
+        beams = [x['sample_idx'] for x in cset_ordered]
+        keep_summaries = self.subsample(summaries, keep_n, strategy=self.contrast_sample_strategy, metrics=metrics, beams=beams)
         if len(keep_summaries) == 0:
             keep_summaries = [x['prediction'] for x in cset if x['method'] == 'reference']
         last = keep_summaries[-1]
@@ -723,6 +762,7 @@ class DataCollatorForContrastSeq2Seq:
         if self.use_mixed_methods:
             return self.select_mixed_methods(cset, self.max_num_rank)
         else:
+            raise Exception('This is deprecated. Rank / Soft sets use mixed methods only.')
             pos = [x for x in cset if x['sign'] == 'positive']
             neg = [x for x in cset if x['sign'] == 'negative']
 

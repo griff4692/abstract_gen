@@ -1,6 +1,7 @@
 import pandas as pd
 
 import ujson
+from scipy.stats import pearsonr
 import os
 
 
@@ -20,13 +21,14 @@ if __name__ == '__main__':
         MIN, MAX
     ]
 
-    EXP = [
-        MIN_LIKE, MAX_LIKE
-    ]
+    # EXP = [
+    #     MIN_LIKE, MAX_LIKE
+    # ]
 
     form = os.path.expanduser('~/data_tmp/weights/{}')
 
     outputs = []
+    x, y = [], []
     for exp in EXP:
         weight = form.format(exp)
         for step in range(1000, 11000, 1000):
@@ -48,11 +50,16 @@ if __name__ == '__main__':
                 val_pred_metrics = pd.read_csv(os.path.join(ckpt_dir, 'validation_predictions_with_metrics.csv'))
                 add_len(val_pred)
                 add_len(val_pred_metrics)
+
+                x.append(val_pred_metrics.pred_len.mean())
+                y.append(val_pred_metrics.rouge1.mean())
+
                 row['val_rouge1_b'] = val_pred.rouge1.mean()
                 row['val_rouge2_b'] = val_pred.rouge2.mean()
                 row['val_rouge1'] = val_pred_metrics.rouge1.mean()
                 row['val_rouge2'] = val_pred_metrics.rouge2.mean()
                 row['val_len'] = val_pred_metrics.pred_len.mean()
+
             else:
                 print(val_pred_fn + ' does not exist')
 
@@ -73,6 +80,8 @@ if __name__ == '__main__':
             outputs.append(row)
 
     outputs = pd.DataFrame(outputs)
+
+    print(pearsonr(x, y))
 
     for exp in EXP:
         sub = outputs[outputs['experiment'] == exp]

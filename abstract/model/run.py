@@ -430,14 +430,15 @@ def parse_args():
     parser.add_argument(
         '--contrast_intra_sample_strategy', default='random',
         choices=[
-            'random', 'max_margin', 'min_margin', 'max_diversity', 'min_diversity', 'most_likely', 'least_likely',
+            'random', 'max_margin', 'min_margin', 'max_diversity', 'min_diversity', 'top_beam', 'bottom_beam',
+            'wide_beam', 'min_metric', 'max_metric', 'max_gap', 'min_gap',
         ],
     )
     parser.add_argument(
         '--contrast_inter_sample_strategy', default='random',
         choices=[
-            'random', 'max_margin', 'min_margin', 'max_diversity', 'min_diversity', 'most_likely', 'least_likely',
-            'min_value', 'max_value'
+            'random', 'max_margin', 'min_margin', 'max_diversity', 'min_diversity', 'top_beam', 'bottom_beam',
+            'wide_beam', 'min_metric', 'max_metric', 'max_gap', 'min_gap',
         ]
     )
     parser.add_argument('--contrast_objective', default='unlikelihood',
