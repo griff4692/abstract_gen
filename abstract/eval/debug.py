@@ -10,26 +10,22 @@ def add_len(df):
 
 
 if __name__ == '__main__':
-    REG = 'clinical_fft_margin_random_rel'
+    EXP = 'margin_max_div_rel'
     MAX = 'clinical_fft_margin_max_margin_rel'
     MIN = 'clinical_fft_margin_min_margin_rel'
 
     MAX_LIKE = 'clinical_unlikelihood_max_margin_relevance'
     MIN_LIKE = 'clinical_unlikelihood_min_margin_relevance'
 
-    EXP = [
-        MIN, MAX
+    EXPS = [
+        EXP
     ]
-
-    # EXP = [
-    #     MIN_LIKE, MAX_LIKE
-    # ]
 
     form = os.path.expanduser('~/data_tmp/weights/{}')
 
     outputs = []
     x, y = [], []
-    for exp in EXP:
+    for exp in EXPS:
         weight = form.format(exp)
         for step in range(1000, 11000, 1000):
             val_fn = os.path.join(weight, 'results_' + str(step) + '_steps.json')
@@ -64,9 +60,10 @@ if __name__ == '__main__':
                 print(val_pred_fn + ' does not exist')
 
             test_fn = os.path.join(ckpt_dir, 'test_predictions.csv')
-            if os.path.exists(test_fn):
-                test_pred = pd.read_csv(os.path.join(ckpt_dir, 'test_predictions.csv'))
-                test_pred_metrics = pd.read_csv(os.path.join(ckpt_dir, 'test_predictions_with_metrics.csv'))
+            test_fn_metrics = os.path.join(ckpt_dir, 'test_predictions_with_metrics.csv')
+            if os.path.exists(test_fn_metrics):
+                test_pred = pd.read_csv(test_fn)
+                test_pred_metrics = pd.read_csv(test_fn_metrics)
                 add_len(test_pred)
                 add_len(test_pred_metrics)
 
@@ -83,12 +80,14 @@ if __name__ == '__main__':
 
     print(pearsonr(x, y))
 
-    for exp in EXP:
+    for exp in EXPS:
         sub = outputs[outputs['experiment'] == exp]
         print(exp)
         for col in sub.columns:
             if col == 'experiment':
                 continue
             v = sub[col].dropna()
+            if len(v) == 0:
+                continue
             print('\t' + col, round(min(v), 2), round(v.mean(), 2), round(v.max(), 2))
         print('\n\n')

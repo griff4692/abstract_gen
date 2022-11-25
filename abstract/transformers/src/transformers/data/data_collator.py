@@ -578,7 +578,7 @@ class DataCollatorForContrastSeq2Seq:
         n = len(arr)
         cand_idxs = list(itertools.combinations(np.arange(n), target_n))
         random.shuffle(cand_idxs)
-        trunc_cands = cand_idxs[:min(len(cand_idxs), 100)]
+        trunc_cands = cand_idxs[:min(len(cand_idxs), 1000)]
         diversities = list(map(lambda idxs: diversity_score([arr[i] for i in idxs]), trunc_cands))
         if maximize:
             return trunc_cands[int(np.argmax(diversities))]
@@ -588,9 +588,8 @@ class DataCollatorForContrastSeq2Seq:
     def sample_for_metric_gap(self, metrics, target_n, maximize=True):
         def avg_gap(x):
             gaps = []
-            for i in range(len(x)):
-                for j in range(i + 1, len(x)):
-                    gaps.append(abs(x[i] - x[j]))
+            for i in range(1, len(x)):
+                gaps.append(abs(x[i] - x[i - 1]))
             return float(np.mean(gaps))
 
         n = len(metrics)
@@ -750,7 +749,9 @@ class DataCollatorForContrastSeq2Seq:
         else:
             metrics = [x['sort_key'] for x in cset_ordered]
         beams = [x['sample_idx'] for x in cset_ordered]
-        keep_summaries = self.subsample(summaries, keep_n, strategy=self.contrast_sample_strategy, metrics=metrics, beams=beams)
+        keep_summaries = self.subsample(
+            summaries, keep_n, strategy=self.contrast_sample_strategy, metrics=metrics, beams=beams
+        )
         if len(keep_summaries) == 0:
             keep_summaries = [x['prediction'] for x in cset if x['method'] == 'reference']
         last = keep_summaries[-1]

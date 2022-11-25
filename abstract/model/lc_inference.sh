@@ -15,6 +15,13 @@ for STEP in 1000 2000 3000 4000 5000 6000 7000 8000 9000 10000
 do
   CKPT_NAME="ckpt_${STEP}_steps"
   STEP_DIR="${DIR}/${CKPT_NAME}"
+
+  if [ ! -d $STEP_DIR ]
+  then
+    echo "$STEP_DIR does not exist. Skipping."
+    continue
+  fi
+
   OUT_MODEL_FN="${STEP_DIR}/pytorch_model.bin"
   if [ ! -f $OUT_MODEL_FN ]
   then
