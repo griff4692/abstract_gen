@@ -574,11 +574,11 @@ class DataCollatorForContrastSeq2Seq:
     max_num_rank: int = 3
     contrast_sample_strategy: str = 'random'
 
-    def sample_for_diversity(self, arr, target_n, maximize=True):
+    def sample_for_diversity(self, arr, target_n, maximize=True, candidates_to_consider=200):
         n = len(arr)
         cand_idxs = list(itertools.combinations(np.arange(n), target_n))
         random.shuffle(cand_idxs)
-        trunc_cands = cand_idxs[:min(len(cand_idxs), 1000)]
+        trunc_cands = cand_idxs[:min(len(cand_idxs), candidates_to_consider)]
         diversities = list(map(lambda idxs: diversity_score([arr[i] for i in idxs]), trunc_cands))
         if maximize:
             return trunc_cands[int(np.argmax(diversities))]
