@@ -47,9 +47,10 @@ fi
 
 while read BEST_STEP; do
   echo "${BEST_STEP} is the best step on the validation set."
+  export CHOSEN_STEP=$BEST_STEP
 done < $BEST_STEP_FN
 
-CKPT_NAME="ckpt_${BEST_STEP}_steps"
+CKPT_NAME="ckpt_${CHOSEN_STEP}_steps"
 STEP_DIR="${DIR}/${CKPT_NAME}"
 OUT_MODEL_FN="${STEP_DIR}/pytorch_model.bin"
 if [ ! -f $OUT_MODEL_FN ]

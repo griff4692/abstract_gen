@@ -704,7 +704,8 @@ class DataCollatorForContrastSeq2Seq:
 
     def select_hard_set(self, cset):
         if self.use_mixed_methods:
-            return self.select_mixed_methods(cset, self.max_num_positive + self.max_num_negative)
+            raise Exception('This is deprecated for now.')
+            # return self.select_mixed_methods(cset, self.max_num_positive + self.max_num_negative)
         else:
             pos = [x for x in cset if x['sign'] == 'positive']
             neg = [x for x in cset if x['sign'] == 'negative']
@@ -715,6 +716,9 @@ class DataCollatorForContrastSeq2Seq:
             elif self.contrast_sample_strategy == 'max_margin':
                 pos_strat = 'max_value'
                 neg_strat = 'min_value'
+            elif self.contrast_sample_strategy == 'avg_margin':
+                pos_strat = 'min_margin'
+                neg_strat = 'min_margin'
             elif self.contrast_sample_strategy in {'random', 'min_diversity', 'max_diversity'}:
                 neg_strat = pos_strat = self.contrast_sample_strategy
             else:
