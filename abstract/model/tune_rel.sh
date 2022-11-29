@@ -44,7 +44,7 @@ $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 0.1 --marg
 $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 10.0 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_high_cw
 
 echo "Length Penalty Tuning..."
- length penalty 0.1, 0.5, 1.0 (default), 2.0
+# length penalty 0.1, 0.5, 1.0 (default), 2.0
 $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty 0.1 --experiment tune_lowest_lp
 $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty 0.5 --experiment tune_low_lp
 $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty 2.0 --experiment tune_high_lp
