@@ -586,6 +586,10 @@ def main():
 
     contrast_dir = None
     if args.contrast:
+        if args.dataset == 'chemistry':
+            raw_datasets['train'] = raw_datasets['train'].map(lambda example: {'uuid': clean_uuid(example['uuid'])})
+            raw_datasets['validation'] = raw_datasets['validation'].map(lambda example: {'uuid': clean_uuid(example['uuid'])})
+
         contrast_dir = os.path.join(DATA_DIR, args.dataset, 'corruptions')
         print(f'Loading in corruptions from {contrast_dir}')
         label_smoother = LabelSmoother(0.1)  # For margin rank contrastive learning
@@ -604,9 +608,6 @@ def main():
 
         train_uuids = raw_datasets['train']['uuid']
         val_uuids = raw_datasets['validation']['uuid']
-        if args.dataset == 'chemistry':
-            train_uuids = [clean_uuid(uuid) for uuid in train_uuids]
-            val_uuids = [clean_uuid(uuid) for uuid in val_uuids]
 
         keep_train_idxs = [i for i, uuid in enumerate(train_uuids) if uuid in train_uuid_set]
         keep_val_idxs = [i for i, uuid in enumerate(val_uuids) if uuid in val_uuid_set]
