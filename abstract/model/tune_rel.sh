@@ -1,5 +1,5 @@
 #!/bin/bash
-set -e
+#set -e
 
 # Training Arguments
 DEVICE=$1
@@ -29,22 +29,34 @@ PROGRAM_ARGS="-contrast --exit_after_n_steps $TUNE_STEPS --validate_every_n_step
 DEFAULT_MLE=0.1
 DEFAULT_SCALE=0.01
 DEFAULT_LP=1.0
+DEFAULT_CW=1.0
+
+echo "No contrast baseline"
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 0.0 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_no_contrast_baseline
 
 echo "Running Default Hyperparameters"
-$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_baseline
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_baseline
+
+echo "Contrast Weight Tuning.."
+# contrast weight 0.01, 0.1, 1.0 (default), 10.0
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 0.01 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_lowest_cw
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 0.1 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_low_cw
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 1.0 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_high_cw
+
+echo "Length Penalty Tuning..."
+# length penalty 0.1, 0.5, 1.0 (default), 2.0
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty 0.1 --experiment tune_lowest_lp
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty 0.5 --experiment tune_low_lp
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty 2.0 --experiment tune_high_lp
 
 echo "MLE Tuning..."
 # mle_weight 0.01, 0.1 (default), 0.5
-$LAUNCH_CMD $PROGRAM_ARGS --mle_weight 0.01 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_low_mle
-$LAUNCH_CMD $PROGRAM_ARGS --mle_weight 0.5 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_high_mle
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight 0.01 --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_low_mle
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight 0.5 --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_high_mle
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight 0.5 --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_highest_mle
 
 echo "Scale Tuning..."
 # scale 0.001, 0.01 (default), 0.1, 1.0
-$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --margin_scale 0.001 --length_penalty $DEFAULT_LP --experiment tune_low_scale
-$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --margin_scale 0.1 --length_penalty $DEFAULT_LP --experiment tune_higher_scale
-$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --margin_scale 1.0 --length_penalty $DEFAULT_LP --experiment tune_highest_scale
-
-echo "Length Penalty Tuning..."
-# length penalty 0.5, 1.0 (default), 2.0
-$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --margin_scale $DEFAULT_SCALE --length_penalty 0.5 --experiment tune_low_lp
-$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --margin_scale $DEFAULT_SCALE --length_penalty 2.0 --experiment tune_high_lp
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale 0.001 --length_penalty $DEFAULT_LP --experiment tune_low_scale
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale 0.1 --length_penalty $DEFAULT_LP --experiment tune_higher_scale
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale 1.0 --length_penalty $DEFAULT_LP --experiment tune_highest_scale
