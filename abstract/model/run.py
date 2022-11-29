@@ -418,6 +418,7 @@ def parse_args():
     parser.add_argument('--validate_every_n_steps', default=1000, type=int)
     parser.add_argument('--max_val_examples', default=2048, type=int)
     parser.add_argument('-save_every_time', default=False, action='store_true')
+    parser.add_argument('--exit_after_n_steps', default=999999999, type=int)
 
     # Contrast hyper-parameters
     parser.add_argument('-contrast', default=False, action='store_true')
@@ -1173,7 +1174,7 @@ def main():
                     else:
                         logger.info(
                             f'Validation loss did not improve: from {min_val_loss} to {monitor_val}. Not saving.')
-            if completed_steps >= args.max_train_steps:
+            if completed_steps >= args.max_train_steps or completed_steps >= args.exit_after_n_steps:
                 logger.info(
                     f'Completed {completed_steps}/{args.max_train_steps} steps. Breaking out of training loop now.'
                 )
