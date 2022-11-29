@@ -32,7 +32,7 @@ DEFAULT_LP=1.0
 DEFAULT_CW=1.0
 
 echo "No contrast baseline"
-$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 0.0 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_no_contrast_baseline
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight 1.0 --contrast_weight 0.0 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_no_contrast_baseline
 
 echo "Running Default Hyperparameters"
 $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_baseline
@@ -41,10 +41,10 @@ echo "Contrast Weight Tuning.."
 # contrast weight 0.01, 0.1, 1.0 (default), 10.0
 $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 0.01 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_lowest_cw
 $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 0.1 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_low_cw
-$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 1.0 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_high_cw
+$LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 10.0 --margin_scale $DEFAULT_SCALE --length_penalty $DEFAULT_LP --experiment tune_high_cw
 
 echo "Length Penalty Tuning..."
-# length penalty 0.1, 0.5, 1.0 (default), 2.0
+ length penalty 0.1, 0.5, 1.0 (default), 2.0
 $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty 0.1 --experiment tune_lowest_lp
 $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty 0.5 --experiment tune_low_lp
 $LAUNCH_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --margin_scale $DEFAULT_SCALE --length_penalty 2.0 --experiment tune_high_lp
