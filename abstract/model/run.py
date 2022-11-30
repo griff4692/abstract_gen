@@ -445,7 +445,6 @@ def parse_args():
     parser.add_argument('--contrast_objective', default='unlikelihood',
         choices=['unlikelihood', 'margin_rank', 'contrast', 'positive_teacher']
     )
-    parser.add_argument('--contrast_weight', default=1.0, type=float)
     parser.add_argument('--positive_methods', default='all')
     parser.add_argument('--mixed_methods', default='all')
     parser.add_argument('-use_mixed_methods', default=False, action='store_true')
@@ -455,8 +454,9 @@ def parse_args():
     # Table 13 lambda https://arxiv.org/pdf/2203.16804.pdf this is 0.001
     parser.add_argument('--contrast_rank_margin', default=0.001, type=float)
     parser.add_argument('--length_penalty', default=1.0, type=float)
-    parser.add_argument('--margin_scale', type=float, default=0.001)
+    parser.add_argument('--margin_scale', type=float, default=0.01)
     parser.add_argument('--mle_weight', default=1.0, type=float)
+    parser.add_argument('--contrast_weight', default=1.0, type=float)
 
     args = parser.parse_args()
     if args.contrast:
