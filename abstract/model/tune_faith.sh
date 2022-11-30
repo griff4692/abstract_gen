@@ -33,4 +33,4 @@ echo $PROGRAM_ARGS
 $ACCELERATE_CMD $PROGRAM_ARGS --mle_weight 1.0 --experiment tune_faith_medium_mle
 $ACCELERATE_CMD $PROGRAM_ARGS --mle_weight 2.0 --experiment tune_faith_high_mle
 $ACCELERATE_CMD $PROGRAM_ARGS --mle_weight 10.0 --experiment tune_faith_highest_mle
-$ACCELERATE_CMD $PROGRAM_ARGS --experiment faith_low_mle --mle_weight 0.1
+$ACCELERATE_CMD $PROGRAM_ARGS --mle_weight 0.1 --experiment faith_low_mle
