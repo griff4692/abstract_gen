@@ -20,7 +20,6 @@ NEG_METHODS="none"
 HF_MODEL="primera"
 CONTRAST_CKPT="primera_ft_$DATASET"
 STEPS_PER_VALIDATION=1000
-MAX_STEPS=10000
 
 LAUNCH_CMD="accelerate launch --main_process_port=$PORT --mixed_precision=fp16 --use_deepspeed --gpu_ids=$DEVICE --num_machines=1 --gradient_accumulation_steps=$GRAD_ACCUM --zero_stage=$STAGE --offload_optimizer=cpu run.py"
 # Can't use mixed precision for unlikelihood
@@ -45,10 +44,12 @@ if [[ $DATASET == "chemistry" ]]
 then
   MAX_TARGET_LENGTH=1024
   MLE_WEIGHT=0.5
+  MAX_STEPS=50000
 else
-  # TODO run pubmed tuning
+  # TODO run Pubmed tuning
   MAX_TARGET_LENGTH=256
   MLE_WEIGHT=0.1
+  MAX_STEPS=10000
 fi
 
 PROGRAM_ARGS="-contrast --contrast_ckpt $CONTRAST_CKPT -use_mixed_methods --max_num_rank $NUM_CAND --max_num_positive $NUM_POS --max_num_negative $NUM_NEG --reference_status remove --positive_methods $POS_METHODS --negative_methods $NEG_METHODS --contrast_objective $OBJECTIVE --max_target_length $MAX_TARGET_LENGTH --contrast_metrics $METRICS --gradient_accumulation_steps $GRAD_ACCUM --dataset $DATASET --hf_model $HF_MODEL --validate_every_n_steps $STEPS_PER_VALIDATION --max_train_steps $MAX_STEPS"
