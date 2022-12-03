@@ -655,6 +655,8 @@ class DataCollatorForContrastSeq2Seq:
             mid_target = target_n // 2
             beam_to_keep = list(range(mid_target)) + [n - 1 - x for x in range(mid_target)]
             idxs_to_keep = [beam_order[i] for i in beam_to_keep]
+        else:
+            raise Exception(f'Unrecognized sample strategy -> {strategy}')
         idxs_to_keep = list(np.sort(idxs_to_keep))
         return [arr[i] for i in idxs_to_keep]
 
@@ -695,8 +697,7 @@ class DataCollatorForContrastSeq2Seq:
         summaries = [x['prediction'] for x in cset_ordered]
         n = len(summaries)
         keep_n = min(n, self.max_num_negative)
-        self.subsample(summaries, keep_n, strategy)
-        keep_summaries = list(summaries[:keep_n])
+        keep_summaries = self.subsample(summaries, keep_n, strategy)
         last = keep_summaries[-1]
         for _ in range(self.max_num_negative - len(keep_summaries)):
             keep_summaries.append(last)

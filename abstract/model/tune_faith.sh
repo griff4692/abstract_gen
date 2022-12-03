@@ -39,10 +39,14 @@ PROGRAM_ARGS="--exit_after_n_steps $TUNE_STEPS -save_every_time --validate_every
 
 echo $ACCELERATE_CMD
 echo $PROGRAM_ARGS
-$ACCELERATE_CMD $PROGRAM_ARGS --mle_weight 1.0 --experiment tune_faith_baseline_mle --contrast_weight $DEFAULT_CW
-$ACCELERATE_CMD $PROGRAM_ARGS --mle_weight 0.5 --experiment tune_faith_lower_mle --contrast_weight $DEFAULT_CW
-$ACCELERATE_CMD $PROGRAM_ARGS --mle_weight 0.1 --experiment faith_lowest_mle --contrast_weight $DEFAULT_CW
 
-$ACCELERATE_CMD $PROGRAM_ARGS --contrast_weight 1.0 --experiment tune_faith_baseline_cw --mle_weight $DEFAULT_MLE
-$ACCELERATE_CMD $PROGRAM_ARGS --contrast_weight 0.1 --experiment tune_faith_low_cw --mle_weight $DEFAULT_MLE
-$ACCELERATE_CMD $PROGRAM_ARGS --contrast_weight 10.0 --experiment tune_faith_high_cw --mle_weight $DEFAULT_MLE
+$ACCELERATE_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight $DEFAULT_CW --experiment tune_${DATASET}_faith_baseline
+$ACCELERATE_CMD $PROGRAM_ARGS --mle_weight $DEFAULT_MLE --contrast_weight 10.0 --experiment tune_${DATASET}_faith_high_cw
+
+#$ACCELERATE_CMD $PROGRAM_ARGS --mle_weight 1.0 --experiment tune_${DATASET}_faith_baseline_mle --contrast_weight $DEFAULT_CW
+#$ACCELERATE_CMD $PROGRAM_ARGS --mle_weight 0.5 --experiment tune_${DATASET}_faith_lower_mle --contrast_weight $DEFAULT_CW
+#$ACCELERATE_CMD $PROGRAM_ARGS --mle_weight 0.1 --experiment tune_${DATASET}_faith_lowest_mle --contrast_weight $DEFAULT_CW
+#
+#$ACCELERATE_CMD $PROGRAM_ARGS --contrast_weight 1.0 --experiment tune_${DATASET}_faith_baseline_cw --mle_weight $DEFAULT_MLE
+#$ACCELERATE_CMD $PROGRAM_ARGS --contrast_weight 0.1 --experiment tune_${DATASET}_faith_low_cw --mle_weight $DEFAULT_MLE
+#$ACCELERATE_CMD $PROGRAM_ARGS --contrast_weight 10.0 --experiment tune_${DATASET}_faith_high_cw --mle_weight $DEFAULT_MLE

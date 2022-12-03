@@ -44,8 +44,8 @@ then
   MLE_WEIGHT=1.0
   CONTRAST_WEIGHT=1.0
 else
-  echo "Hyperparmeters Not Tuned Yet. Exiting."
-  exit
+  MLE_WEIGHT=1.0
+  CONTRAST_WEIGHT=10.0
 fi
 
 PROGRAM_ARGS="--mle_weight $MLE_WEIGHT --contrast_weight $CONTRAST_WEIGHT --reference_status positive -contrast --contrast_ckpt $CONTRAST_CKPT --max_num_rank $NUM_CAND --max_num_positive $NUM_POS --max_num_negative $NUM_NEG --positive_methods $POS_METHODS --negative_methods $NEG_METHODS --contrast_objective $OBJECTIVE --max_target_length $MAX_TARGET_LENGTH --contrast_metrics $METRICS --gradient_accumulation_steps $GRAD_ACCUM --dataset $DATASET --hf_model $HF_MODEL --validate_every_n_steps $STEPS_PER_VALIDATION --max_train_steps $MAX_STEPS"
