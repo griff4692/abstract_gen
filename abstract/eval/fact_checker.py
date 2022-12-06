@@ -13,7 +13,9 @@ class FactChecker:
     def __init__(self, device=0, batch_size=32) -> None:
         print(f'Loading fact checker from {PATH_TO_FACT_CHECKER}')
         self.device = device
-        self.model = LongCheckerModel.load_from_checkpoint(PATH_TO_FACT_CHECKER, strict=False).to(self.device).eval().half()
+        self.model = LongCheckerModel.load_from_checkpoint(
+            PATH_TO_FACT_CHECKER, strict=False
+        ).to(self.device).eval().half()
         self.model.freeze()
         self.tokenizer = get_tokenizer()
         self.labels = ['CONTRADICT', 'NEI', 'SUPPORT']
