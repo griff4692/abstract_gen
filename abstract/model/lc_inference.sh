@@ -28,7 +28,7 @@ then
     OUT_MODEL_FN="${STEP_DIR}/pytorch_model.bin"
     if [ ! -f $OUT_MODEL_FN ]
     then
-      python "$STEP_DIR/zero_to_fp32.py" $STEP_DIR $OUT_MODEL_FN
+      python zero_to_fp32.py $STEP_DIR $OUT_MODEL_FN
     fi
     python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $INFERENCE_BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_EXAMPLES --split $SPLIT
     cd ../eval
@@ -55,7 +55,7 @@ STEP_DIR="${DIR}/${CKPT_NAME}"
 OUT_MODEL_FN="${STEP_DIR}/pytorch_model.bin"
 if [ ! -f $OUT_MODEL_FN ]
 then
-  python "$STEP_DIR/zero_to_fp32.py" $STEP_DIR $OUT_MODEL_FN
+  python zero_to_fp32.py $STEP_DIR $OUT_MODEL_FN
 fi
 
 SPLIT="test"

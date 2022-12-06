@@ -160,7 +160,12 @@ def _get_fp32_state_dict_from_zero_checkpoint(ds_checkpoint_dir):
     """
     print(f"Processing zero checkpoint '{ds_checkpoint_dir}'")
 
-    optim_files = get_optim_files(ds_checkpoint_dir)
+    try:
+        optim_files = get_optim_files(ds_checkpoint_dir)
+    except Exception as e:
+        print(e)
+        print('Will just directly load fp16 model weights. No change to model behavior.')
+        return None
     zero_stage, world_size, fp32_flat_groups = parse_optim_states(optim_files, ds_checkpoint_dir)
     print(
         f"Detected checkpoint of type zero stage {zero_stage}, world_size: {world_size}")
@@ -418,8 +423,9 @@ def convert_zero_checkpoint_to_fp32_state_dict(checkpoint_dir, output_file, tag=
     """
 
     state_dict = get_fp32_state_dict_from_zero_checkpoint(checkpoint_dir, tag)
-    print(f"Saving fp32 state dict to {output_file}")
-    torch.save(state_dict, output_file)
+    if state_dict is not None:
+        print(f"Saving fp32 state dict to {output_file}")
+        torch.save(state_dict, output_file)
 
 
 def load_state_dict_from_zero_checkpoint(model, checkpoint_dir, tag=None):
