@@ -292,8 +292,9 @@ if __name__ == '__main__':
         df_to_table(df)
         exit(0)
 
-    if os.path.exists(out_fn):
-        print(f'Metric outfile already exists -> {out_fn}')
+    full_fn = prediction_fn.replace('.csv', '') + f'_with_metrics.csv'
+    if os.path.exists(out_fn) or os.path.exists(full_fn):
+        print(f'Metric outfile already exists -> {out_fn} or {full_fn}')
         if not args.overwrite:
             print('Exiting. Must run with -overwrite to re-run this evaluation.')
             exit(0)
