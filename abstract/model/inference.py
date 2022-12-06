@@ -101,9 +101,18 @@ def main(args):
     config.contrastive_classifier = args.contrast_classifier  # Can remove if not using margin
     print(f'Loading model from {ckpt_dir}')
 
-    model = model_constructor.from_pretrained(ckpt_dir, from_tf=False, config=config).to(args.device)
-    model.resize_token_embeddings(len(tokenizer))
+    try:
+        model = model_constructor.from_pretrained(ckpt_dir, from_tf=False, config=config).to(args.device)
+    except Exception as e:
+        print(str(e))
+        print('Probably erased. We can load the model weights directly instead')
+        fn = os.path.join(ckpt_dir, 'pytorch_model', 'mp_rank_00_model_states.pt')
+        fp_weights = torch.load(fn)
+        model = LEDForConditionalGeneration(config=config).half()
+        model.load_state_dict(fp_weights['module'], strict=False)
+        model = model.to(args.device)
 
+    model.resize_token_embeddings(len(tokenizer))
     print(f'Loading custom dataset from {data_path}')
     predict_dataset = load_from_disk(data_path)[args.split]
     uuids = predict_dataset['uuid']
