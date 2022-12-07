@@ -17,7 +17,7 @@ def remove_eos_bos_from_str(text):
 HF_TRANSFORMER = os.path.expanduser('~/RoBERTa-base-PM-M3-Voc-distill-align-hf')
 
 
-def compute_likelihood(source, predictions, model, tokenizer, max_target_length=1024, max_source_length=4096):
+def compute_likelihood(source, predictions, model, tokenizer, max_target_length=512, max_source_length=1024):
     model_inputs = tokenizer(
         source, add_special_tokens=True, max_length=max_source_length,
         padding=True, truncation=True, return_tensors='pt',
@@ -44,7 +44,7 @@ def compute_likelihood(source, predictions, model, tokenizer, max_target_length=
     }
 
     scores = []
-    with torch.no_grad():
+    with torch.no_grad(), torch.cuda.amp.autocast():
         batch_logits = model(**decoder_inputs).logits
         for logit, label in zip(batch_logits, labels):
             nll = float(label_smoother({'logits': logit}, label).cpu().item())
@@ -90,7 +90,7 @@ if __name__ == '__main__':
     print(f'Loading model from {ckpt_dir}')
 
     model = LEDForConditionalGeneration.from_pretrained(ckpt_dir, from_tf=False, config=config).to(args.device)
-    model = model.eval()
+    model = model.eval().half()
     model.resize_token_embeddings(len(tokenizer))
 
     data = data_loader(args.dataset, contrast_subsample=True)
@@ -105,12 +105,12 @@ if __name__ == '__main__':
 
         if store_col in records[0] and not args.overwrite:
             print(f'Already Done! Skipping {fn}...')
+            continue
 
         predictions = [x['prediction'] for x in records]
         orig_data = uuid2data[records[0]['uuid']]
         source = remove_eos_bos_from_str(orig_data['input'])
         bartscores = compute_likelihood(source, predictions, model, tokenizer)
-
         for bartscore, record in zip(bartscores, records):
             record[store_col] = bartscore
 

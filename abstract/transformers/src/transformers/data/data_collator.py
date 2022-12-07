@@ -619,6 +619,13 @@ class DataCollatorForContrastSeq2Seq:
             idxs_to_keep = np.arange(n)
             np.random.shuffle(idxs_to_keep)
             idxs_to_keep = idxs_to_keep[:target_n]
+        elif strategy == 'max_length':
+            length_priority = np.array([len(x.split(' ')) for x in arr])
+            # Want biggest so take negative of length before truncating to target_n
+            idxs_to_keep = np.argsort(-length_priority)[:target_n]
+        elif strategy == 'min_length':
+            length_priority = np.array([len(x.split(' ')) for x in arr])
+            idxs_to_keep = np.argsort(length_priority)[:target_n]
         elif strategy == 'max_margin':
             mid_target = target_n // 2
             idxs_to_keep = list(range(mid_target)) + [n - 1 - x for x in range(mid_target)]
