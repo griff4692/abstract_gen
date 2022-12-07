@@ -39,18 +39,17 @@ fi
 
 MARGIN_SCALE=0.01
 LENGTH_PENALTY=1.0
-if [[ $DATASET == "chemistry" ]]
+if [[ $DATASET == "clinical" ]]
 then
-  MAX_TARGET_LENGTH=1024
-  MLE_WEIGHT=1.0
-  CONTRAST_WEIGHT=0.1
-  MAX_STEPS=20000
-else
-  # TODO run Pubmed tuning
   MAX_TARGET_LENGTH=256
   MLE_WEIGHT=0.1
   CONTRAST_WEIGHT=1.0
   MAX_STEPS=10000
+else
+  MAX_TARGET_LENGTH=1024
+  MLE_WEIGHT=1.0
+  CONTRAST_WEIGHT=0.1
+  MAX_STEPS=20000
 fi
 
 PROGRAM_ARGS="-contrast --contrast_ckpt $CONTRAST_CKPT -use_mixed_methods --max_num_rank $NUM_CAND --max_num_positive $NUM_POS --max_num_negative $NUM_NEG --reference_status remove --positive_methods $POS_METHODS --negative_methods $NEG_METHODS --contrast_objective $OBJECTIVE --max_target_length $MAX_TARGET_LENGTH --contrast_metrics $METRICS --gradient_accumulation_steps $GRAD_ACCUM --dataset $DATASET --hf_model $HF_MODEL --validate_every_n_steps $STEPS_PER_VALIDATION --max_train_steps $MAX_STEPS"
