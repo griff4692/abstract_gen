@@ -413,6 +413,7 @@ def parse_args():
         default=None,
         help="If the training should continue from a checkpoint folder.",
     )
+    parser.add_argument('-start_fresh', default=False, action='store')
     parser.add_argument('--optimizer', default='adam')
     parser.add_argument('-no_gradient_clip', default=False, action='store_true')
     parser.add_argument('--validate_every_n_steps', default=1000, type=int)
@@ -822,11 +823,11 @@ def main():
         load_accelerator_state_relaxed(
             config, args.resume_from_checkpoint, accelerator._models, accelerator._optimizers, accelerator._schedulers,
             accelerator.state.process_index, accelerator.scaler,
-            load_optimizer=not args.contrast  # We are starting a new run
+            load_optimizer=not args.contrast and not args.start_fresh  # We are starting a new run
         )
 
         step_fn = os.path.join(args.resume_from_checkpoint, 'step.json')
-        if args.contrast or not os.path.exists(step_fn):
+        if args.contrast or not os.path.exists(step_fn) or args.start_fresh:
             resume_step = completed_steps = 0
         else:
             with open(step_fn, 'r') as fd:
