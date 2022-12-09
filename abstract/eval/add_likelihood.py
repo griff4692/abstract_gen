@@ -8,6 +8,7 @@ from transformers import AutoConfig, LEDForConditionalGeneration, LEDTokenizerFa
 from transformers.trainer_pt_utils import LabelSmoother
 from tqdm import tqdm
 from abstract.preprocess.preprocess import data_loader
+from abstract.eval.utils import get_batch_ranges
 
 
 def remove_eos_bos_from_str(text):
@@ -17,7 +18,9 @@ def remove_eos_bos_from_str(text):
 HF_TRANSFORMER = os.path.expanduser('~/RoBERTa-base-PM-M3-Voc-distill-align-hf')
 
 
-def compute_likelihood(source, predictions, model, tokenizer, max_target_length=512, max_source_length=1024):
+def compute_likelihood(
+        source, predictions, model, tokenizer, max_target_length=512, max_source_length=4096, batch_size=4
+):
     model_inputs = tokenizer(
         source, add_special_tokens=True, max_length=max_source_length,
         padding=True, truncation=True, return_tensors='pt',
@@ -27,28 +30,33 @@ def compute_likelihood(source, predictions, model, tokenizer, max_target_length=
     # put global attention on <s> token
     global_attention_mask[:, 0] = 1
     model_inputs['global_attention_mask'] = global_attention_mask
+    n = len(predictions)
 
     encoder_outputs = model.led.encoder(
         **{k: v.to(model.device) for k, v in model_inputs.items()}
-    ).last_hidden_state.repeat(len(predictions), 1, 1)
+    ).last_hidden_state  # .repeat(len(predictions), 1, 1)
 
-    # Setup the tokenizer for targets
-    with tokenizer.as_target_tokenizer():
-        labels = tokenizer(
-            predictions, add_special_tokens=True, max_length=max_target_length, padding=True, truncation=True,
-            return_tensors='pt'
-        )['input_ids'].to(model.device)
-    labels[labels == tokenizer.pad_token_id] = -100
-    decoder_inputs = {
-        'encoder_outputs': [encoder_outputs], 'decoder_input_ids': model.prepare_decoder_input_ids_from_labels(labels),
-    }
+    batches = get_batch_ranges(n, batch_size=batch_size)
 
     scores = []
-    with torch.no_grad(), torch.cuda.amp.autocast():
-        batch_logits = model(**decoder_inputs).logits
-        for logit, label in zip(batch_logits, labels):
-            nll = float(label_smoother({'logits': logit}, label).cpu().item())
-            scores.append(-nll)
+    for s, e in batches:
+        # Setup the tokenizer for targets
+        with tokenizer.as_target_tokenizer():
+            labels = tokenizer(
+                predictions[s:e], add_special_tokens=True, max_length=max_target_length, padding=True, truncation=True,
+                return_tensors='pt'
+            )['input_ids'].to(model.device)
+        labels[labels == tokenizer.pad_token_id] = -100
+        decoder_inputs = {
+            'encoder_outputs': [encoder_outputs.repeat(len(labels), 1, 1)],
+            'decoder_input_ids': model.prepare_decoder_input_ids_from_labels(labels),
+        }
+
+        with torch.no_grad(), torch.cuda.amp.autocast():
+            batch_logits = model(**decoder_inputs).logits
+            for logit, label in zip(batch_logits, labels):
+                nll = float(label_smoother({'logits': logit}, label).cpu().item())
+                scores.append(-nll)
     return scores
 
 
@@ -58,10 +66,11 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', default='clinical', choices=['pubmed', 'clinical', 'chemistry'])
     parser.add_argument('--experiment', default='primera_ft_{}')
     parser.add_argument('--ckpt_name', default='best_ckpt')
-    parser.add_argument('--device', default=0, type=int)
+    parser.add_argument('--device', default=2, type=int)
     parser.add_argument('-debug', action='store_true', default=False)
     parser.add_argument('-overwrite', action='store_true', default=False)
     parser.add_argument('--hf_path', default='allenai/PRIMERA')
+    parser.add_argument('--store_col', default='primera_bertscore')
 
     args = parser.parse_args()
 
@@ -98,12 +107,11 @@ if __name__ == '__main__':
     for record in data['train']:
         uuid2data[record['uuid']] = record
 
-    store_col = 'primera_bertscore'
     for fn in tqdm(fns):
         with open(fn, 'r') as fd:
             records = ujson.load(fd)
 
-        if store_col in records[0] and not args.overwrite:
+        if args.store_col in records[0] and not args.overwrite:
             print(f'Already Done! Skipping {fn}...')
             continue
 
@@ -112,7 +120,7 @@ if __name__ == '__main__':
         source = remove_eos_bos_from_str(orig_data['input'])
         bartscores = compute_likelihood(source, predictions, model, tokenizer)
         for bartscore, record in zip(bartscores, records):
-            record[store_col] = bartscore
+            record[args.store_col] = bartscore
 
         with open(fn, 'w') as fd:
             ujson.dump(records, fd)

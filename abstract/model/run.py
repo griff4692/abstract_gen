@@ -630,6 +630,10 @@ def main():
     if model.config.decoder_start_token_id is None:
         raise ValueError("Make sure that `config.decoder_start_token_id` is correctly defined")
 
+    if args.resume_from_checkpoint is not None:
+        weights = torch.load(os.path.join(args.resume_from_checkpoint, 'pytorch_model.bin'))
+        model.load_state_dict(weights, strict=False)
+
     all_cols = list(raw_datasets['train'].features)
     keep_cols = ['input_ids', 'attention_mask', 'labels']
     if args.contrast:
@@ -814,24 +818,6 @@ def main():
     progress_bar = tqdm(range(args.max_train_steps), disable=not accelerator.is_local_main_process)
     completed_steps = 0
     starting_epoch = 0
-    # Potentially load in the weights and states from a previous save
-    if args.resume_from_checkpoint:
-        accelerator.print(f"Resumed from checkpoint: {args.resume_from_checkpoint}")
-        logger.info(f"Loading states from {args.resume_from_checkpoint}")
-        load_accelerator_state_relaxed(
-            config, args.resume_from_checkpoint, accelerator._models, accelerator._optimizers, accelerator._schedulers,
-            accelerator.state.process_index, accelerator.scaler,
-            load_optimizer=not args.contrast  # We are starting a new run
-        )
-
-        step_fn = os.path.join(args.resume_from_checkpoint, 'step.json')
-        if args.contrast or not os.path.exists(step_fn):
-            resume_step = completed_steps = 0
-        else:
-            with open(step_fn, 'r') as fd:
-                both_steps = ujson.load(fd)
-                resume_step = both_steps['step']
-                completed_steps = both_steps['completed_step']
 
     def contrast_step(outputs, gold_labels, contrast_labels, contrast_cutoff):
         contrast_losses = {}
@@ -1088,9 +1074,9 @@ def main():
                 contrast_labels = contrast_labels.view(bsize, c_set_size, -1)
 
             # We need to skip steps until we reach the resumed step
-            if args.resume_from_checkpoint and epoch == starting_epoch:
-                if resume_step is not None and step < resume_step:
-                    continue
+            # if args.resume_from_checkpoint and epoch == starting_epoch:
+            #     if resume_step is not None and step < resume_step:
+            #         continue
             if args.hf_model == 'primera':
                 add_global_attention_mask(batch)
             outputs = model(**batch)
