@@ -728,7 +728,7 @@ def main():
         labels = ['\n'.join(nltk.sent_tokenize(label)) for label in labels]
         return preds, labels
 
-    num_workers = 0 if args.debug else 8
+    num_workers = 0 if args.debug else 16
     train_dataloader = DataLoader(
         train_dataset, shuffle=True, collate_fn=train_data_collator, batch_size=args.per_device_train_batch_size,
         num_workers=num_workers
