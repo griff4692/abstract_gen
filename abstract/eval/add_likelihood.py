@@ -116,7 +116,11 @@ if __name__ == '__main__':
             continue
 
         predictions = [x['prediction'] for x in records]
-        orig_data = uuid2data[records[0]['uuid']]
+        try:
+            orig_data = uuid2data[records[0]['uuid']]
+        except:
+            print('Could not find UUID ', records[0]['uuid'])
+            continue
         source = remove_eos_bos_from_str(orig_data['input'])
         bartscores = compute_likelihood(source, predictions, model, tokenizer)
         for bartscore, record in zip(bartscores, records):

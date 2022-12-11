@@ -413,7 +413,7 @@ def parse_args():
         default=None,
         help="If the training should continue from a checkpoint folder.",
     )
-    parser.add_argument('-start_fresh', default=False, action='store')
+    parser.add_argument('-start_fresh', default=False, action='store_true')
     parser.add_argument('--optimizer', default='adam')
     parser.add_argument('-no_gradient_clip', default=False, action='store_true')
     parser.add_argument('--validate_every_n_steps', default=1000, type=int)
