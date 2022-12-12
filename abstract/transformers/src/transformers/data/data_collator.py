@@ -711,31 +711,33 @@ class DataCollatorForContrastSeq2Seq:
         return list(keep_summaries)
 
     def select_hard_set(self, cset):
-        if self.use_mixed_methods:
-            raise Exception('This is deprecated for now.')
-            # return self.select_mixed_methods(cset, self.max_num_positive + self.max_num_negative)
+        pos = [x for x in cset if x['sign'] == 'positive']
+        neg = [x for x in cset if x['sign'] == 'negative']
+
+        if self.contrast_sample_strategy == 'min_margin':
+            pos_strat = 'min_value'
+            neg_strat = 'max_value'
+        elif self.contrast_sample_strategy == 'max_margin':
+            pos_strat = 'max_value'
+            neg_strat = 'min_value'
+        elif self.contrast_sample_strategy == 'avg_margin':
+            pos_strat = 'min_margin'
+            neg_strat = 'min_margin'
+        elif self.contrast_sample_strategy == 'easy':
+            pos_strat = 'max_likelihood'
+            neg_strat = 'min_likelihood'
+        elif self.contrast_sample_strategy == 'hard':
+            pos_strat = 'min_likelihood'
+            neg_strat = 'max_likelihood'
+        elif self.contrast_sample_strategy in {'random', 'min_diversity', 'max_diversity'}:
+            neg_strat = pos_strat = self.contrast_sample_strategy
         else:
-            pos = [x for x in cset if x['sign'] == 'positive']
-            neg = [x for x in cset if x['sign'] == 'negative']
+            raise Exception(f'Implement strategy {self.contrast_sample_strategy}')
 
-            if self.contrast_sample_strategy == 'min_margin':
-                pos_strat = 'min_value'
-                neg_strat = 'max_value'
-            elif self.contrast_sample_strategy == 'max_margin':
-                pos_strat = 'max_value'
-                neg_strat = 'min_value'
-            elif self.contrast_sample_strategy == 'avg_margin':
-                pos_strat = 'min_margin'
-                neg_strat = 'min_margin'
-            elif self.contrast_sample_strategy in {'random', 'min_diversity', 'max_diversity'}:
-                neg_strat = pos_strat = self.contrast_sample_strategy
-            else:
-                raise Exception(f'Implement strategy {self.contrast_sample_strategy}')
+        pos_keep = self.select_positive(pos, strategy=pos_strat)
+        neg_keep = self.select_negative(neg, strategy=neg_strat)
 
-            pos_keep = self.select_positive(pos, strategy=pos_strat)
-            neg_keep = self.select_negative(neg, strategy=neg_strat)
-
-            return pos_keep + neg_keep
+        return pos_keep + neg_keep
 
     def order(self, cset):
         for cs in cset:
@@ -813,38 +815,7 @@ class DataCollatorForContrastSeq2Seq:
         return keep_summaries
 
     def select_soft_set(self, cset):
-        if self.use_mixed_methods:
-            return self.select_mixed_methods(cset, self.max_num_rank)
-        else:
-            raise Exception('This is deprecated. Rank / Soft sets use mixed methods only.')
-            pos = [x for x in cset if x['sign'] == 'positive']
-            neg = [x for x in cset if x['sign'] == 'negative']
-
-            pos_order = self.order([x for x in pos if self.method_match(x, self.positive_methods)])
-            neg_order = self.order([x for x in neg if self.method_match(x, self.negative_methods)])
-
-            num_neg_sample = min(len(neg_order), self.max_num_negative)
-            num_pos_sample = min(len(pos_order), self.max_num_positive)
-
-            if self.contrast_sample_strategy == 'min_margin':
-                pos_strat = 'min_value'
-                neg_strat = 'max_value'
-            elif self.contrast_sample_strategy == 'max_margin':
-                pos_strat = 'max_value'
-                neg_strat = 'min_value'
-            elif self.contrast_sample_strategy in {'random', 'min_diversity', 'max_diversity'}:
-                neg_strat = pos_strat = self.contrast_sample_strategy
-            else:
-                raise Exception(f'Implement strategy {self.contrast_sample_strategy}')
-
-            neg_summaries = self.subsample([x['prediction'] for x in neg_order], num_neg_sample, strategy=neg_strat)
-            pos_summaries = self.subsample([x['prediction'] for x in pos_order], num_pos_sample, strategy=pos_strat)
-
-            keep_summaries = pos_summaries + neg_summaries
-            last = keep_summaries[-1]
-            for _ in range(self.max_num_positive + self.max_num_negative - len(keep_summaries)):
-                keep_summaries.append(last)
-            return keep_summaries
+        return self.select_mixed_methods(cset, self.max_num_rank)
 
     def __call__(self, features, return_tensors=None):
         uuids = [feature.pop('uuid') for feature in features]

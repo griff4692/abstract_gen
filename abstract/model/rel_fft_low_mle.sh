@@ -56,5 +56,4 @@ PROGRAM_ARGS="-contrast --contrast_ckpt $CONTRAST_CKPT -use_mixed_methods --max_
 EXTRA_ARGS="--mle_weight $MLE_WEIGHT --contrast_weight $CONTRAST_WEIGHT --margin_scale $MARGIN_SCALE --length_penalty $LENGTH_PENALTY --experiment $EXPERIMENT --contrast_intra_sample_strategy $SAMPLE_STRATEGY -save_every_time"
 echo $ACCELERATE_CMD
 echo $PROGRAM_ARGS $EXTRA_ARGS
-exit
 $ACCELERATE_CMD $PROGRAM_ARGS $EXTRA_ARGS

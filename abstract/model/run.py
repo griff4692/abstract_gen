@@ -434,7 +434,7 @@ def parse_args():
         choices=[
             'random', 'max_margin', 'min_margin', 'max_diversity', 'min_diversity', 'top_beam', 'bottom_beam',
             'wide_beam', 'min_metric', 'max_metric', 'max_gap', 'min_gap', 'avg_margin', 'max_length', 'min_length',
-            'max_surprise', 'min_surprise',
+            'easy', 'hard', 'max_surprise', 'min_surprise',
         ],
     )
     parser.add_argument(
