@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-SHARED="-contrast --contrast_ckpt primera_ft_pubmed -use_mixed_methods --max_num_rank 4 --max_num_positive 2 --max_num_negative 2 --reference_status remove --positive_methods reference --negative_methods none --contrast_objective margin_rank --max_target_length 512 --contrast_metrics relevance --gradient_accumulation_steps 8 --dataset pubmed --hf_model primera --validate_every_n_steps 1000 --exit_after_n_steps 1000 --max_train_steps 10000 --mle_weight 0.1 --contrast_weight 1.0 --margin_scale 0.1 --length_penalty 2.0 -save_every_time"
+MAX_VAL_EXAMPLES=512
+SHARED="-contrast --max_val_examples ${MAX_VAL_EXAMPLES} --contrast_ckpt primera_ft_pubmed -use_mixed_methods --max_num_rank 4 --max_num_positive 2 --max_num_negative 2 --reference_status remove --positive_methods reference --negative_methods none --contrast_objective margin_rank --max_target_length 512 --contrast_metrics relevance --gradient_accumulation_steps 8 --dataset pubmed --hf_model primera --validate_every_n_steps 1000 --exit_after_n_steps 1000 --max_train_steps 10000 --mle_weight 0.1 --contrast_weight 1.0 --margin_scale 0.1 --length_penalty 2.0 -save_every_time"
 
 
 echo "Random"

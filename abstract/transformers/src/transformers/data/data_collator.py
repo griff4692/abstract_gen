@@ -602,7 +602,7 @@ class DataCollatorForContrastSeq2Seq:
         else:
             return trunc_cands[int(np.argmin(candidate_gaps))]
 
-    def subsample(self, arr, target_n, strategy, metrics=None, beams=None):
+    def subsample(self, arr, target_n, strategy, metrics=None, beams=None, likelihoods=None):
         import numpy as np
         n = len(arr)
         if target_n > n:
@@ -662,6 +662,10 @@ class DataCollatorForContrastSeq2Seq:
             mid_target = target_n // 2
             beam_to_keep = list(range(mid_target)) + [n - 1 - x for x in range(mid_target)]
             idxs_to_keep = [beam_order[i] for i in beam_to_keep]
+        elif strategy == 'max_likelihood':
+            idxs_to_keep = np.argsort(-np.array(likelihoods))[:target_n]
+        elif strategy == 'min_likelihood':
+            idxs_to_keep = np.argsort(np.array(likelihoods))[:target_n]
         else:
             raise Exception(f'Unrecognized sample strategy -> {strategy}')
         idxs_to_keep = list(np.sort(idxs_to_keep))
@@ -675,19 +679,36 @@ class DataCollatorForContrastSeq2Seq:
         assert len(non_ref) > 0
         if self.reference_status == 'ensure':
             summaries = [x['prediction'] for x in non_ref]
+            likelihoods = None
+            if 'primera_bertscore' in non_ref[0]:
+                likelihoods = [x['primera_bertscore'] for x in non_ref]
+            else:
+                assert 'likelihood' not in strategy
             n = len(summaries)
             keep_n = min(n, self.max_num_negative) - 1
-            keep_summaries = [reference[0]['prediction']] + self.subsample(summaries, keep_n, strategy)
+            keep_summaries = [reference[0]['prediction']] + self.subsample(
+                summaries, keep_n, strategy, likelihoods=likelihoods
+            )
         elif self.reference_status == 'remove':
             summaries = [x['prediction'] for x in non_ref]
+            likelihoods = None
+            if 'primera_bertscore' in non_ref[0]:
+                likelihoods = [x['primera_bertscore'] for x in non_ref]
+            else:
+                assert 'likelihood' not in strategy
             n = len(summaries)
             keep_n = min(n, self.max_num_negative)
-            keep_summaries = self.subsample(summaries, keep_n, strategy)
+            keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods)
         else:
             summaries = [x['prediction'] for x in cset_filt]
+            likelihoods = None
+            if 'primera_bertscore' in cset_filt[0]:
+                likelihoods = [x['primera_bertscore'] for x in cset_filt]
+            else:
+                assert 'likelihood' not in strategy
             n = len(summaries)
             keep_n = min(n, self.max_num_positive)
-            keep_summaries = self.subsample(summaries, keep_n, strategy)
+            keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods)
         last = keep_summaries[-1]
         for _ in range(self.max_num_positive - len(keep_summaries)):
             keep_summaries.append(last)
@@ -701,10 +722,16 @@ class DataCollatorForContrastSeq2Seq:
     def select_negative(self, cset, strategy):
         cset_filt = [x for x in cset if self.method_match(x['method'], self.negative_methods)]
         cset_ordered = self.order(cset_filt)
+
+        likelihoods = None
+        if 'primera_bertscore' in cset_ordered[0]:
+            likelihoods = [x['primera_bertscore'] for x in cset_ordered]
+        else:
+            assert 'likelihood' not in strategy
         summaries = [x['prediction'] for x in cset_ordered]
         n = len(summaries)
         keep_n = min(n, self.max_num_negative)
-        keep_summaries = self.subsample(summaries, keep_n, strategy)
+        keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods)
         last = keep_summaries[-1]
         for _ in range(self.max_num_negative - len(keep_summaries)):
             keep_summaries.append(last)
@@ -713,7 +740,6 @@ class DataCollatorForContrastSeq2Seq:
     def select_hard_set(self, cset):
         pos = [x for x in cset if x['sign'] == 'positive']
         neg = [x for x in cset if x['sign'] == 'negative']
-
         if self.contrast_sample_strategy == 'min_margin':
             pos_strat = 'min_value'
             neg_strat = 'max_value'
