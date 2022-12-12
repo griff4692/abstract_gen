@@ -819,7 +819,6 @@ class DataCollatorForContrastSeq2Seq:
 
         return [cset_ordered[idx]['prediction'] for idx in keep_idxs]
 
-
     def select_mixed_methods(self, cset, target_n):
         cset_filt = [
             x for x in cset if self.method_match(x['method'], self.mixed_methods) and x['sign'] == 'mixed'
