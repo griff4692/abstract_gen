@@ -153,7 +153,7 @@ def run_single_metric(records, bartscore_hf_model, bartscore_path, uuid2data, me
     uuid_cache = {}
     eval_inputs = []
     for record in tqdm(records, total=len(records)):
-        if args.dataset == 'chemical':
+        if args.dataset == 'chemistry':
             uuid = clean_uuid(record['uuid'])
         else:
             uuid = record['uuid']
@@ -315,6 +315,16 @@ if __name__ == '__main__':
         df_to_table(merged)
         exit(0)
 
+    data = data_loader(args.dataset, contrast_subsample=False)
+    uuid2data = {}
+    for split, split_data in data.items():
+        for record in split_data:
+            if args.dataset == 'chemistry':
+                uuid = clean_uuid(record['uuid'])
+            else:
+                uuid = record['uuid']
+            uuid2data[uuid] = record
+
     print(f'Loading in predictions from {prediction_fn}')
     predict_df = pd.read_csv(prediction_fn)
 
@@ -331,16 +341,6 @@ if __name__ == '__main__':
     predict_df.dropna(subset=['prediction', 'uuid'], inplace=True)
     predict_df = predict_df.assign(temp_id=list(range(len(predict_df))))
     records = predict_df.to_dict('records')
-
-    data = data_loader(args.dataset, contrast_subsample=False)
-    uuid2data = {}
-    for split, split_data in data.items():
-        for record in split_data:
-            if args.dataset == 'chemistry':
-                uuid = clean_uuid(record['uuid'])
-            else:
-                uuid = record['uuid']
-            uuid2data[uuid] = record
 
     augmented_records = run_single_metric(
         records, bartscore_hf_model=bartscore_hf_model, bartscore_path=bartscore_path, uuid2data=uuid2data,
