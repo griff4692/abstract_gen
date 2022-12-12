@@ -683,7 +683,9 @@ class DataCollatorForContrastSeq2Seq:
             if 'primera_bertscore' in non_ref[0]:
                 likelihoods = [x['primera_bertscore'] for x in non_ref]
             else:
-                assert 'likelihood' not in strategy
+                if 'likelihood' in strategy:
+                    print('Missing likelihood!  Setting to all 0s...')
+                    likelihoods = [0 for _ in range(len(non_ref))]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative) - 1
             keep_summaries = [reference[0]['prediction']] + self.subsample(
@@ -695,7 +697,9 @@ class DataCollatorForContrastSeq2Seq:
             if 'primera_bertscore' in non_ref[0]:
                 likelihoods = [x['primera_bertscore'] for x in non_ref]
             else:
-                assert 'likelihood' not in strategy
+                if 'likelihood' in strategy:
+                    print('Missing likelihood! Setting to all 0s...')
+                    likelihoods = [0 for _ in range(len(non_ref))]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative)
             keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods)
@@ -705,7 +709,9 @@ class DataCollatorForContrastSeq2Seq:
             if 'primera_bertscore' in cset_filt[0]:
                 likelihoods = [x['primera_bertscore'] for x in cset_filt]
             else:
-                assert 'likelihood' not in strategy
+                if 'likelihood' in strategy:
+                    print('Missing likelihood! Setting to all 0s...')
+                    likelihoods = [0 for _ in range(len(cset_filt))]
             n = len(summaries)
             keep_n = min(n, self.max_num_positive)
             keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods)
@@ -727,7 +733,9 @@ class DataCollatorForContrastSeq2Seq:
         if 'primera_bertscore' in cset_ordered[0]:
             likelihoods = [x['primera_bertscore'] for x in cset_ordered]
         else:
-            assert 'likelihood' not in strategy
+            if 'likelihood' in strategy:
+                print('Missing likelihood!  Setting to all 0s...')
+                likelihoods = [0 for _ in range(len(cset_ordered))]
         summaries = [x['prediction'] for x in cset_ordered]
         n = len(summaries)
         keep_n = min(n, self.max_num_negative)
