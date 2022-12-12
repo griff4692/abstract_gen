@@ -17,6 +17,7 @@ from abstract.eval.extractive_fragments import parse_extractive_fragments
 from abstract.corruptions.diverse_decoding import compute_rouge
 from abstract.eval.fact_checker import FactChecker
 from abstract.preprocess.preprocess import data_loader
+from abstract.corruptions.entity.bern_entities import clean_uuid
 
 
 import torch.multiprocessing as mp
@@ -147,68 +148,18 @@ def _compute_rouge(records, queue=None):
     exit(0)
 
 
-def run_in_parallel(records, bartscore_hf_model, bartscore_path, uuid2data):
-    metric_outputs = []
-
-    print('Preprocessing inputs and outputs...')
-    uuid_cache = {}
-    eval_inputs = []
-    for record in tqdm(records, total=len(records)):
-        row = prepare(record, uuid2data[record['uuid']], uuid_cache, include_tokens=True)
-        if row['uuid'] not in uuid_cache:
-            uuid_cache[row['uuid']] = row
-        eval_inputs.append(row)
-    print('Done preprocessing...')
-
-    for obj in eval_inputs:
-        metric_outputs.append({'temp_id': obj['temp_id'], 'num_prediction_tokens': obj['num_prediction_tokens']})
-    
-    print('Initializing BERTScore')
-    bert_scorer = BertScoreWrapper()
-    print('Initializing BartScore')
-    bart_scorer = LikelihoodWrapper(hf_config=bartscore_hf_model, model_path=bartscore_path)
-    print('Initializing FactChecker')
-    fact_checker = FactChecker()
-
-    q = mp.Queue()
-
-    processes = [
-        mp.Process(target=fact_checker.compute_batch, args=(eval_inputs, q)),
-        mp.Process(target=bart_scorer.compute_batch, args=(eval_inputs, q)),
-        mp.Process(target=bert_scorer.compute_batch, args=(eval_inputs, q)),
-        mp.Process(target=_compute_rouge, args=(eval_inputs, q)),
-        mp.Process(target=_compute_extractive_frags, args=(eval_inputs, q)),
-    ]
-
-    for prc in processes:
-        prc.start()
-    for prc in processes:
-        prc.join()
-
-    metric_outputs += list(itertools.chain(*[q.get() for _ in range(len(processes))]))
-    bart_scorer.cleanup()
-    fact_checker.cleanup()
-
-    print('Merging metrics')
-    metric_outputs_by_id = defaultdict(dict)
-    for metric_output in metric_outputs:
-        metric_outputs_by_id[metric_output.pop('temp_id')].update(metric_output)
-
-    for record in records:
-        temp_id = record.pop('temp_id')
-        for k, v in metric_outputs_by_id[temp_id].items():
-            record[k] = v
-
-    return records
-
-
 def run_single_metric(records, bartscore_hf_model, bartscore_path, uuid2data, metric='rouge'):
     print('Preprocessing inputs and outputs...')
     uuid_cache = {}
     eval_inputs = []
     for record in tqdm(records, total=len(records)):
+        if args.dataset == 'chemical':
+            uuid = clean_uuid(record['uuid'])
+        else:
+            uuid = record['uuid']
+
         row = prepare(
-            record, uuid2data[record['uuid']], uuid_cache, include_tokens=metric=='extractive_fragments',
+            record, uuid2data[uuid], uuid_cache, include_tokens=metric=='extractive_fragments',
             include_source=metric != 'rouge'
         )
 
@@ -385,17 +336,16 @@ if __name__ == '__main__':
     uuid2data = {}
     for split, split_data in data.items():
         for record in split_data:
-            uuid2data[record['uuid']] = record
+            if args.dataset == 'chemical':
+                uuid = clean_uuid(record['uuid'])
+            else:
+                uuid = record['uuid']
+            uuid2data[uuid] = record
 
-    if args.metric is None:
-        augmented_records = run_in_parallel(
-            records, bartscore_hf_model=bartscore_hf_model, bartscore_path=bartscore_path, uuid2data=uuid2data
-        )
-    else:
-        augmented_records = run_single_metric(
-            records, bartscore_hf_model=bartscore_hf_model, bartscore_path=bartscore_path, uuid2data=uuid2data,
-            metric=args.metric
-        )
+    augmented_records = run_single_metric(
+        records, bartscore_hf_model=bartscore_hf_model, bartscore_path=bartscore_path, uuid2data=uuid2data,
+        metric=args.metric
+    )
     print('Statistics returned. Storing them in a dataframe with original columns.')
     augmented_df = pd.DataFrame(augmented_records)
     n = len(augmented_df)
