@@ -1185,26 +1185,28 @@ def main():
                 break
         if is_done:
             break
-    result, loss_keys = run_validation()
-    accelerator.log(result, step=completed_steps)
-    monitor_val = np.mean([result[k] for k in loss_keys])
-    logger.info(f'Final validation loss from {min_val_loss} to {monitor_val}. Saving weights to {ckpt_dir}')
-    if not args.debug:
-        os.makedirs(last_dir, exist_ok=True)
-        accelerator.save_state(last_dir)
-        step_fn = os.path.join(last_dir, 'step.json')
-        with open(step_fn, 'w') as fd:
-            ujson.dump({'step': step, 'completed_step': completed_steps}, fd)
-        with open(os.path.join(args.output_dir, 'last_results.json'), "w") as f:
-            json.dump(
-                {
-                    "eval_rouge1": result["validation/rouge1"],
-                    "eval_rouge2": result["validation/rouge2"],
-                    "eval_rougeL": result["validation/rougeL"],
-                    "eval_rougeLsum": result["validation/rougeLsum"],
-                },
-                f,
-            )
+
+    if not args.save_every_time:
+        result, loss_keys = run_validation()
+        accelerator.log(result, step=completed_steps)
+        monitor_val = np.mean([result[k] for k in loss_keys])
+        logger.info(f'Final validation loss from {min_val_loss} to {monitor_val}. Saving weights to {ckpt_dir}')
+        if not args.debug:
+            os.makedirs(last_dir, exist_ok=True)
+            accelerator.save_state(last_dir)
+            step_fn = os.path.join(last_dir, 'step.json')
+            with open(step_fn, 'w') as fd:
+                ujson.dump({'step': step, 'completed_step': completed_steps}, fd)
+            with open(os.path.join(args.output_dir, 'last_results.json'), "w") as f:
+                json.dump(
+                    {
+                        "eval_rouge1": result["validation/rouge1"],
+                        "eval_rouge2": result["validation/rouge2"],
+                        "eval_rougeL": result["validation/rougeL"],
+                        "eval_rougeLsum": result["validation/rougeLsum"],
+                    },
+                    f,
+                )
 
 
 if __name__ == '__main__':
