@@ -745,11 +745,52 @@ class DataCollatorForContrastSeq2Seq:
         cset_ordered = list(sorted(cset, key=lambda x: x['sort_key']))
         return cset_ordered
 
+    def surprise_me(self, cset_filt, target_n):
+        orig = cset_filt.copy()
+        from scipy.stats import spearmanr
+        cset_filt = [
+            x for x in cset_filt if 'primera' in x['method']
+        ]
+        if len(cset_filt) < target_n:
+            cset_filt = orig
+        if len(cset_filt) < target_n:
+            last = cset_filt[-1]
+            for _ in range(target_n - len(cset_filt)):
+                cset_filt.append(last)
+        cset_ordered = self.order(cset_filt)  # Order by metrics
+        metrics = [-x['sort_key'] for x in cset_ordered]  # Want it to come first
+        neg_beams = [-x['sample_idx'] for x in cset_ordered]
+
+        from itertools import combinations
+        combs = list(combinations(np.arange(len(cset_ordered)), self.max_num_rank))
+        np.random.shuffle(combs)
+        cand_sets = combs[:min(len(combs), 100)]
+        corels = []
+        for cand in cand_sets:
+            try:
+                corels.append(spearmanr(
+                    [metrics[i] for i in cand], [neg_beams[i] for i in cand]
+                )[0])
+            except:
+                corels.append(0)
+
+        if self.contrast_sample_strategy == 'max_surprise':
+            keep_idxs = list(np.sort(cand_sets[int(np.argmin(corels))]))
+        elif self.contrast_sample_strategy == 'min_surprise':
+            keep_idxs = list(np.sort(cand_sets[int(np.argmax(corels))]))
+        else:
+            raise Exception(f'Unknown strategy --> {self.contrast_sample_strategy}')
+
+        return [cset_ordered[idx]['prediction'] for idx in keep_idxs]
+
+
     def select_mixed_methods(self, cset, target_n):
         cset_filt = [
             x for x in cset if self.method_match(x['method'], self.mixed_methods) and x['sign'] == 'mixed'
         ]
 
+        if 'surprise' in self.contrast_sample_strategy:
+            return self.surprise_me(cset, target_n)
         cset_ordered = self.order(cset_filt)
         n = len(cset_ordered)
         keep_n = min(n, target_n)

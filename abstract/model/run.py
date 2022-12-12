@@ -433,7 +433,8 @@ def parse_args():
         '--contrast_intra_sample_strategy', default='random',
         choices=[
             'random', 'max_margin', 'min_margin', 'max_diversity', 'min_diversity', 'top_beam', 'bottom_beam',
-            'wide_beam', 'min_metric', 'max_metric', 'max_gap', 'min_gap', 'avg_margin', 'max_length', 'min_length'
+            'wide_beam', 'min_metric', 'max_metric', 'max_gap', 'min_gap', 'avg_margin', 'max_length', 'min_length',
+            'max_surprise', 'min_surprise',
         ],
     )
     parser.add_argument(
