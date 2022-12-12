@@ -336,7 +336,7 @@ if __name__ == '__main__':
     uuid2data = {}
     for split, split_data in data.items():
         for record in split_data:
-            if args.dataset == 'chemical':
+            if args.dataset == 'chemistry':
                 uuid = clean_uuid(record['uuid'])
             else:
                 uuid = record['uuid']
