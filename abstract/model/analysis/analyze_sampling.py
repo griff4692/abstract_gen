@@ -13,6 +13,14 @@ from p_tqdm import p_uimap
 from transformers import DataCollatorForContrastSeq2Seq
 
 
+def cross_diversity(arr_a, arr_b):
+    cross_divs = []
+    for a in range(len(arr_a)):
+        max_div = max([diversity_score([arr_a[a], arr_b[b]]) for b in range(len(arr_b))])
+        cross_divs.append(max_div)
+    return float(np.mean(cross_divs))
+
+
 def record(args, fn):
     stats_by_method = defaultdict(lambda: defaultdict(list))
     with open(fn, 'r') as fd:
@@ -37,6 +45,15 @@ def record(args, fn):
                     continue
                 subset_obj = [x for x in cset_filt if x['prediction'] in subset]
 
+                likelihoods = []
+                for x in subset_obj:
+                    if 'primera_bertscore' in x:
+                        likelihoods.append(x['primera_bertscore'])
+                    elif 'primera_bartscore' in x:
+                        likelihoods.append(x['primera_bartscore'])
+                if len(likelihoods) > 0:
+                    stats_by_method[strategy]['likelihood'].append(float(np.mean(likelihoods)))
+
                 avg_beam = np.mean([x['sample_idx'] + 1 for x in subset_obj])
                 length = np.mean([len(s.split(' ')) for s in subset])
                 stats_by_method[strategy]['beam'].append(avg_beam)
@@ -51,7 +68,7 @@ def record(args, fn):
                 rels = [score_candidate_fn(x, relevance_metrics) for x in subset_obj]
                 rels = np.sort(rels)
                 gaps = []
-                for i in range(1, len(gaps)):
+                for i in range(1, len(rels)):
                     gaps.append(abs(rels[i] - rels[i - 1]))
                 avg_gap = np.mean(gaps)
                 avg_faithful = float(np.mean([
@@ -67,6 +84,63 @@ def record(args, fn):
                 stats_by_method[strategy]['metric_gap'].append(avg_gap)
             else:
                 subset = collator.select_hard_set(cset_filt)
+
+                pos_obj = [x for x in cset_filt if x['prediction'] in subset[:2]]
+                neg_obj = [x for x in cset_filt if x['prediction'] in subset[2:]]
+
+                neg_abs = [x['prediction'] for x in neg_obj]
+                pos_abs = [x['prediction'] for x in pos_obj]
+                neg_div = diversity_score(neg_abs)
+                pos_div = diversity_score(pos_abs)
+
+                stats_by_method[strategy]['diversity_positive'].append(neg_div)
+                stats_by_method[strategy]['diversity_negative'].append(pos_div)
+                stats_by_method[strategy]['diversity_cross'].append(cross_diversity(pos_abs, neg_abs))
+                neg_methods = Counter([x['method'] for x in neg_obj])
+                uses_reference = 0
+                for x in pos_obj:
+                    if x['method'] == 'reference':
+                        uses_reference = 1
+                        break
+                stats_by_method[strategy]['includes_reference'].append(uses_reference)
+
+                for k, v in neg_methods.items():
+                    stats_by_method[strategy][k].append(v / len(neg_obj))
+
+                pos_likelihoods = []
+                for x in pos_obj:
+                    if 'primera_bertscore' in x:
+                        pos_likelihoods.append(x['primera_bertscore'])
+                    elif 'primera_bartscore' in x:
+                        pos_likelihoods.append(x['primera_bartscore'])
+
+                neg_likelihoods = []
+                for x in neg_obj:
+                    if 'primera_bertscore' in x:
+                        neg_likelihoods.append(x['primera_bertscore'])
+                    elif 'primera_bartscore' in x:
+                        neg_likelihoods.append(x['primera_bartscore'])
+
+                if len(neg_likelihoods) > 0:
+                    ap = float(np.mean(pos_likelihoods))
+                    an = float(np.mean(neg_likelihoods))
+                    stats_by_method[strategy]['likelihood_positive'].append(ap)
+                    stats_by_method[strategy]['likelihood_positive'].append(an)
+                    stats_by_method[strategy]['likelihood_gap'].append(ap - an)
+
+                neg_density = float(np.mean([x['density'] for x in neg_obj]))
+                neg_coverage = float(np.mean([x['coverage'] for x in neg_obj]))
+                stats_by_method[strategy]['density_negative'].append(neg_density)
+                stats_by_method[strategy]['coverage_negative'].append(neg_coverage)
+
+                pos_density = float(np.mean([x['density'] for x in pos_obj]))
+                pos_coverage = float(np.mean([x['coverage'] for x in pos_obj]))
+
+                stats_by_method[strategy]['density_positive'].append(pos_density)
+                stats_by_method[strategy]['coverage_positive'].append(pos_coverage)
+
+                stats_by_method[strategy]['density_gap'].append(pos_density - neg_density)
+                stats_by_method[strategy]['coverage_gap'].append(pos_coverage - neg_coverage)
     return stats_by_method
 
 
@@ -74,11 +148,14 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to analyze different sampling strategies for calibration')
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
     parser.add_argument('--dataset', default='chemistry')
-    parser.add_argument('--metric', default='relevance')
+    parser.add_argument('--metric', default='faithful')
     parser.add_argument('--max_num_rank', default=4, type=int)
     parser.add_argument('--max_examples', default=100000, type=int)
+    parser.add_argument('-debug', default=False, action='store_true')
 
     args = parser.parse_args()
+
+    args.debug = True
 
     from transformers import AutoTokenizer
     dummy = AutoTokenizer.from_pretrained('sshleifer/bart-tiny-random')
@@ -91,8 +168,8 @@ if __name__ == '__main__':
     relevance_metrics = ['bs_ref_f1', 'rouge1', 'rouge2']
     if args.metric == 'faithful':
         strategies = [
-            'random', 'max_margin', 'min_margin', 'max_diversity', 'min_diversity',
-            'avg_margin', 'easy', 'hard',
+            'random', 'max_margin', 'min_margin', 'avg_margin', 'max_diversity', 'min_diversity',
+            'easy', 'hard',
         ]
         default_metrics = faith_metrics.copy()
     elif args.metric == 'relevance':
@@ -133,7 +210,11 @@ if __name__ == '__main__':
     if n > args.max_examples:
         fns = list(np.random.choice(fns, size=(args.max_examples, ), replace=False))
     all_stats_by_method = defaultdict(lambda: defaultdict(list))
-    single_stats_by_method = list(p_uimap(lambda fn: record(args, fn), fns))
+    if args.debug:
+        single_stats_by_method = list(tqdm(map(lambda fn: record(args, fn), fns), total=len(fns)))
+    else:
+        single_stats_by_method = list(p_uimap(lambda fn: record(args, fn), fns))
+
 
     for stats_by_method in single_stats_by_method:
         for strategy, obj in stats_by_method.items():

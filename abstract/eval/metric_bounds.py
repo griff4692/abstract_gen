@@ -29,3 +29,6 @@ if __name__ == '__main__':
         print(f'Saving statistics to {out_fn}')
         with open(out_fn, 'w') as fd:
             ujson.dump(stats, fd)
+
+        for k, v in stats.items():
+            print(str(k) + ' ' + str(v['mean']) + ' ' + str(v['std']))
