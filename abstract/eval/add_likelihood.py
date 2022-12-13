@@ -70,7 +70,7 @@ if __name__ == '__main__':
     parser.add_argument('-debug', action='store_true', default=False)
     parser.add_argument('-overwrite', action='store_true', default=False)
     parser.add_argument('--hf_path', default='allenai/PRIMERA')
-    parser.add_argument('--store_col', default='primera_bartscore')  # should be primera_bartscore
+    parser.add_argument('--store_col', default='primera_bertscore')  # should be primera_bartscore
 
     args = parser.parse_args()
 

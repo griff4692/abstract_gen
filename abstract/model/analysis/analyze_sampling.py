@@ -30,7 +30,11 @@ def record(args, fn):
         for strategy in strategies:
             collator.contrast_sample_strategy = strategy
             if args.metric == 'relevance':
-                subset = collator.select_mixed_methods(cset_filt, args.max_num_rank)
+                try:
+                    subset = collator.select_mixed_methods(cset_filt, args.max_num_rank)
+                except Exception as e:
+                    print(e)
+                    continue
                 subset_obj = [x for x in cset_filt if x['prediction'] in subset]
 
                 avg_beam = np.mean([x['sample_idx'] + 1 for x in subset_obj])
