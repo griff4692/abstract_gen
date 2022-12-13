@@ -615,7 +615,14 @@ class DataCollatorForContrastSeq2Seq:
         if n == target_n:
             return arr
 
-        if strategy == 'random':
+        switch_to_random = False
+        if target_n == 1:
+            switch_to_random = strategy not in {
+                'max_likelihood', 'min_likelihood', 'min_metric', 'max_metric', 'min_length', 'max_length',
+                'top_beam', 'bottom_beam'
+            }
+
+        if strategy == 'random' or switch_to_random:
             idxs_to_keep = np.arange(n)
             np.random.shuffle(idxs_to_keep)
             idxs_to_keep = idxs_to_keep[:target_n]
@@ -643,10 +650,6 @@ class DataCollatorForContrastSeq2Seq:
             idxs_to_keep = self.sample_for_metric_gap(metrics, target_n, maximize=True)
         elif strategy == 'min_gap':
             idxs_to_keep = self.sample_for_metric_gap(metrics, target_n, maximize=False)
-        elif strategy == 'max_value':
-            idxs_to_keep = list(range(target_n))
-        elif strategy == 'min_value':
-            idxs_to_keep = [n - 1 - x for x in range(target_n)]
         elif strategy == 'max_diversity':
             idxs_to_keep = self.sample_for_diversity(arr, target_n, maximize=True)
         elif strategy == 'min_diversity':

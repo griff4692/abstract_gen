@@ -155,8 +155,6 @@ if __name__ == '__main__':
 
     args = parser.parse_args()
 
-    args.debug = True
-
     from transformers import AutoTokenizer
     dummy = AutoTokenizer.from_pretrained('sshleifer/bart-tiny-random')
 
@@ -206,6 +204,45 @@ if __name__ == '__main__':
     pattern = os.path.join(args.data_dir, args.dataset, 'corruptions', 'train', '*.json')
     print(f'Looking for files matching {pattern}')
     fns = list(glob(pattern))
+
+    # poss = []
+    # negs = []
+    # refs = []
+    #
+    # poo = []
+    # pee = []
+    # pong = []
+    #
+    # blah = []
+    # bloo = []
+    # blee = []
+    # for fn in fns[:100]:
+    #     with open(fn, 'r') as fd:
+    #         obj = ujson.load(fd)
+    #         para = [x for x in obj if x['method'] == 'paraphrase']
+    #         neg = [x for x in obj if x['sign'] == 'negative']
+    #         ref = [x for x in obj if x['method'] == 'reference']
+    #
+    #         for x in para:
+    #             poss.append(x['fact_score'])
+    #             poo.append(x['bart_score'])
+    #             blah.append(x['bs_src_precision'])
+    #
+    #         for x in ref:
+    #             refs.append(x['fact_score'])
+    #             pong.append(x['bart_score'])
+    #             blee.append(x['bs_src_precision'])
+    #
+    #         for x in neg:
+    #             negs.append(x['fact_score'])
+    #             pee.append(x['bart_score'])
+    #             bloo.append(x['bs_src_precision'])
+    #
+    # print(np.mean(negs), np.mean(pee), np.mean(bloo))
+    # print(np.mean(poss), np.mean(poo), np.mean(blah))
+    # print(np.mean(refs), np.mean(pong), np.mean(blee))
+    # raise
+
     n = len(fns)
     if n > args.max_examples:
         fns = list(np.random.choice(fns, size=(args.max_examples, ), replace=False))
