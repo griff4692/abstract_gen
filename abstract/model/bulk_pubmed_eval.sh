@@ -6,7 +6,7 @@ CKPT="ckpt_1000_steps"
 
 for EXP in $EXPS
 do
-  python inference.py --experiment $EXP --dataset pubmed --split test --max_examples 16 --device $1 --ckpt_name $CKPT --results_name $CKPT
+  python inference.py --experiment $EXP --dataset pubmed --split test --max_examples 99999999 --device $1 --ckpt_name $CKPT --results_name $CKPT
   cd ../eval
   FN="$HOME/weights/$EXP/$CKPT/test_predictions.csv"
   CUDA_VISIBLE_DEVICES=$1 bash run_all.sh pubmed $FN all
