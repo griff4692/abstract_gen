@@ -48,4 +48,4 @@ PROGRAM_ARGS="--per_device_eval_batch_size $EVAL_BS --mle_weight $MLE_WEIGHT --c
 
 REST="--experiment ${EXPERIMENT} --contrast_intra_sample_strategy ${SAMPLE_STRATEGY}"
 echo $PROGRAM_ARGS $REST
-python run.py $PROGRAM_ARGS $REST
+CUDA_VISIBLE_DEVICES=$1 python run.py $PROGRAM_ARGS $REST
