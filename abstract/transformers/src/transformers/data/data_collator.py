@@ -602,7 +602,7 @@ class DataCollatorForContrastSeq2Seq:
         else:
             return trunc_cands[int(np.argmin(candidate_gaps))]
 
-    def subsample(self, arr, target_n, strategy, metrics=None, beams=None, likelihoods=None):
+    def subsample(self, arr, target_n, strategy, metrics=None, beams=None, likelihoods=None, densities=None):
         import numpy as np
         n = len(arr)
         if target_n > n:
@@ -673,6 +673,10 @@ class DataCollatorForContrastSeq2Seq:
             idxs_to_keep = np.argsort(-np.array(likelihoods))[:target_n]
         elif strategy == 'min_likelihood':
             idxs_to_keep = np.argsort(np.array(likelihoods))[:target_n]
+        elif strategy == 'max_density':
+            idxs_to_keep = np.argsort(-np.array(densities))[:target_n]
+        elif strategy == 'min_density':
+            idxs_to_keep = np.argsort(np.array(densities))[:target_n]
         else:
             raise Exception(f'Unrecognized sample strategy -> {strategy}')
         idxs_to_keep = list(np.sort(idxs_to_keep))
@@ -693,10 +697,12 @@ class DataCollatorForContrastSeq2Seq:
                 if 'likelihood' in strategy:
                     print('Missing likelihood!  Setting to all 0s...')
                     likelihoods = [0 for _ in range(len(non_ref))]
+
+            densities = [x['densities'] for x in non_ref]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative) - 1
             keep_summaries = [reference[0]['prediction']] + self.subsample(
-                summaries, keep_n, strategy, likelihoods=likelihoods
+                summaries, keep_n, strategy, likelihoods=likelihoods, densities=densities
             )
         elif self.reference_status == 'remove':
             summaries = [x['prediction'] for x in non_ref]
@@ -709,7 +715,8 @@ class DataCollatorForContrastSeq2Seq:
                     likelihoods = [0 for _ in range(len(non_ref))]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative)
-            keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods)
+            densities = [x['densities'] for x in non_ref]
+            keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods, densities=densities)
         else:
             summaries = [x['prediction'] for x in cset_filt]
             likelihoods = None
@@ -721,7 +728,8 @@ class DataCollatorForContrastSeq2Seq:
                     likelihoods = [0 for _ in range(len(cset_filt))]
             n = len(summaries)
             keep_n = min(n, self.max_num_positive)
-            keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods)
+            densities = [x['densities'] for x in cset_filt]
+            keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods, densities=densities)
         last = keep_summaries[-1]
         for _ in range(self.max_num_positive - len(keep_summaries)):
             keep_summaries.append(last)
@@ -743,10 +751,11 @@ class DataCollatorForContrastSeq2Seq:
             if 'likelihood' in strategy:
                 print('Missing likelihood!  Setting to all 0s...')
                 likelihoods = [0 for _ in range(len(cset_ordered))]
+        densities = [x['densities'] for x in cset_ordered]
         summaries = [x['prediction'] for x in cset_ordered]
         n = len(summaries)
         keep_n = min(n, self.max_num_negative)
-        keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods)
+        keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods, densities=densities)
         last = keep_summaries[-1]
         for _ in range(self.max_num_negative - len(keep_summaries)):
             keep_summaries.append(last)
@@ -755,6 +764,7 @@ class DataCollatorForContrastSeq2Seq:
     def select_hard_set(self, cset):
         pos = [x for x in cset if x['sign'] == 'positive']
         neg = [x for x in cset if x['sign'] == 'negative']
+
         if self.contrast_sample_strategy == 'min_margin':
             pos_strat = 'min_value'
             neg_strat = 'max_value'
@@ -770,6 +780,9 @@ class DataCollatorForContrastSeq2Seq:
         elif self.contrast_sample_strategy == 'hard':
             pos_strat = 'min_likelihood'
             neg_strat = 'max_likelihood'
+        elif self.contrast_sample_strategy == 'max_extractive_gap':
+            pos_strat = 'max_density'
+            neg_strat = 'min_density'
         elif self.contrast_sample_strategy in {'random', 'min_diversity', 'max_diversity'}:
             neg_strat = pos_strat = self.contrast_sample_strategy
         else:

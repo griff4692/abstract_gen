@@ -220,4 +220,9 @@ if __name__ == '__main__':
     parser.add_argument('--length_penalty', default=1.0, type=float)
 
     args = parser.parse_args()
+
+    if 'faith' in args.experiment and args.dataset == 'pubmed':
+        args.max_length = min(args.max_length, 256)
+        print('Ensuring maximum length is 256 for Pubmed')
+
     main(args)
