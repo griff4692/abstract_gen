@@ -1,7 +1,8 @@
 #!/bin/bash
 set -e
 
-EXPS="pubmed_min_metric_rel pubmed_max_metric_rel pubmed_max_margin_rel pubmed_min_margin_rel pubmed_max_diversity_rel"
+#EXPS="pubmed_min_metric_rel pubmed_max_metric_rel pubmed_max_margin_rel pubmed_min_margin_rel pubmed_max_diversity_rel"
+EXPS="pubmed_min_diversity_rel pubmed_top_beam pubmed_wide_beam pubmed_bottom_beam pubmed_max_length_rel pubmed_min_length_rel"
 CKPT="ckpt_1000_steps"
 
 for EXP in $EXPS

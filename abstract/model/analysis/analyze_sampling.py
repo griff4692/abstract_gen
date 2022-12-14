@@ -2,6 +2,7 @@ import os
 import pandas as pd
 import ujson
 from tqdm import tqdm
+import regex as re
 from glob import glob
 import argparse
 from collections import defaultdict
@@ -63,7 +64,10 @@ def record(args, fn):
                     if not np.isnan(rank_corel):
                         stats_by_method[strategy]['calibration'].append(rank_corel)
                 avg_beam = np.mean([x['sample_idx'] + 1 for x in subset_obj])
-                length = np.mean([len(s.split(' ')) for s in subset])
+
+                toks = [[x.strip() for x in re.split(r'\s+', y) if len(x.strip()) > 0] for y in subset]
+                lengths = list(map(len, toks))
+                length = np.mean(lengths)
                 stats_by_method[strategy]['beam'].append(avg_beam)
                 stats_by_method[strategy]['length'].append(length)
                 methods = Counter([x['method'] for x in subset_obj])
@@ -100,6 +104,17 @@ def record(args, fn):
                 pos_abs = [x['prediction'] for x in pos_obj]
                 neg_div = diversity_score(neg_abs)
                 pos_div = diversity_score(pos_abs)
+
+                pos_toks = [[x.strip() for x in re.split(r'\s+', y) if len(x.strip()) > 0] for y in pos_abs]
+                neg_toks = [[x.strip() for x in re.split(r'\s+', y) if len(x.strip()) > 0] for y in neg_abs]
+                pos_lens = list(map(len, pos_toks))
+                neg_lens = list(map(len, neg_toks))
+
+                avg_pos_len = np.mean(pos_lens)
+                avg_neg_len = np.mean(neg_lens)
+                stats_by_method[strategy]['lengths_positive'].append(avg_pos_len)
+                stats_by_method[strategy]['lengths_negative'].append(avg_neg_len)
+                stats_by_method[strategy]['length_gap'].append(avg_pos_len - avg_neg_len)
 
                 stats_by_method[strategy]['diversity_positive'].append(neg_div)
                 stats_by_method[strategy]['diversity_negative'].append(pos_div)
