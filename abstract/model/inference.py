@@ -67,7 +67,7 @@ def main(args):
     model_constructor = LongT5ForConditionalGeneration if is_t5 else LEDForConditionalGeneration
     tokenizer_constructor = T5Tokenizer if is_t5 else AutoTokenizer
     args.max_source_length = 16384 if is_t5 else 4096
-    args.max_target_length = 1024
+
     data_prefix = 't5' if is_t5 else 'primera'
     data_path = os.path.join(DATA_DIR, args.dataset, f'{data_prefix}_splits')
 
@@ -155,7 +155,7 @@ def main(args):
         model = model.half()
 
     gen_kwargs = {
-        'max_length': args.max_target_length if args is not None else config.max_length,
+        'max_length': args.max_length,
         'num_beams': args.num_beams, 'no_repeat_ngram_size': 3, 'early_stopping': True,
         'length_penalty': args.length_penalty
     }
@@ -216,6 +216,7 @@ if __name__ == '__main__':
     parser.add_argument('-overwrite', default=False, action='store_true')
     parser.add_argument('-contrast_classifier', default=False, action='store_true')
     parser.add_argument('--split', default='test')
+    parser.add_argument('--max_length', default=1024, type=int)
     parser.add_argument('--length_penalty', default=1.0, type=float)
 
     args = parser.parse_args()

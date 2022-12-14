@@ -9,6 +9,7 @@ import numpy as np
 from collections import Counter
 from abstract.eval.diversity import diversity_score
 from p_tqdm import p_uimap
+from scipy.stats import spearmanr
 
 from transformers import DataCollatorForContrastSeq2Seq
 
@@ -43,7 +44,12 @@ def record(args, fn):
                 except Exception as e:
                     print(e)
                     continue
-                subset_obj = [x for x in cset_filt if x['prediction'] in subset]
+                subset_obj = []
+                for pred in subset:
+                    for x in cset_filt:
+                        if x['prediction'] == pred:
+                            subset_obj.append(x)
+                            break
 
                 likelihoods = []
                 for x in subset_obj:
@@ -53,7 +59,9 @@ def record(args, fn):
                         likelihoods.append(x['primera_bartscore'])
                 if len(likelihoods) > 0:
                     stats_by_method[strategy]['likelihood'].append(float(np.mean(likelihoods)))
-
+                    rank_corel = spearmanr(likelihoods, -np.arange(len(likelihoods)))[0]
+                    if not np.isnan(rank_corel):
+                        stats_by_method[strategy]['calibration'].append(rank_corel)
                 avg_beam = np.mean([x['sample_idx'] + 1 for x in subset_obj])
                 length = np.mean([len(s.split(' ')) for s in subset])
                 stats_by_method[strategy]['beam'].append(avg_beam)
@@ -147,13 +155,14 @@ def record(args, fn):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to analyze different sampling strategies for calibration')
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
-    parser.add_argument('--dataset', default='chemistry')
-    parser.add_argument('--metric', default='faithful')
+    parser.add_argument('--dataset', default='pubmed')
+    parser.add_argument('--metric', default='relevance')
     parser.add_argument('--max_num_rank', default=4, type=int)
     parser.add_argument('--max_examples', default=100000, type=int)
     parser.add_argument('-debug', default=False, action='store_true')
 
     args = parser.parse_args()
+    args.debug = True
 
     from transformers import AutoTokenizer
     dummy = AutoTokenizer.from_pretrained('sshleifer/bart-tiny-random')
@@ -208,9 +217,12 @@ if __name__ == '__main__':
     # poss = []
     # negs = []
     # refs = []
+    # ref_lens = []
+    # pos_lens = []
+    # neg_lens = []
     #
-    # poo = []
-    # pee = []
+    # pos_x = []
+    # neg_x = []
     # pong = []
     #
     # blah = []
@@ -222,10 +234,13 @@ if __name__ == '__main__':
     #         para = [x for x in obj if x['method'] == 'paraphrase']
     #         neg = [x for x in obj if x['sign'] == 'negative']
     #         ref = [x for x in obj if x['method'] == 'reference']
+    #         ref_lens += [len(x['prediction'].split(' ')) for x in ref]
+    #         pos_lens += [len(x['prediction'].split(' ')) for x in para]
+    #         neg_lens += [len(x['prediction'].split(' ')) for x in neg]
     #
     #         for x in para:
     #             poss.append(x['fact_score'])
-    #             poo.append(x['bart_score'])
+    #             pos_x.append(x['bart_score'])
     #             blah.append(x['bs_src_precision'])
     #
     #         for x in ref:
@@ -235,13 +250,12 @@ if __name__ == '__main__':
     #
     #         for x in neg:
     #             negs.append(x['fact_score'])
-    #             pee.append(x['bart_score'])
+    #             neg_x.append(x['bart_score'])
     #             bloo.append(x['bs_src_precision'])
     #
-    # print(np.mean(negs), np.mean(pee), np.mean(bloo))
-    # print(np.mean(poss), np.mean(poo), np.mean(blah))
-    # print(np.mean(refs), np.mean(pong), np.mean(blee))
-    # raise
+    # print(np.mean(negs), np.mean(neg_x), np.mean(bloo), np.mean(neg_lens))
+    # print(np.mean(poss), np.mean(pos_x), np.mean(blah), np.mean(pos_lens))
+    # print(np.mean(refs), np.mean(pong), np.mean(blee), np.mean(ref_lens))
 
     n = len(fns)
     if n > args.max_examples:

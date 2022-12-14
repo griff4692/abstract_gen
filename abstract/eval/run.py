@@ -9,7 +9,6 @@ import numpy as np
 from collections import defaultdict
 from tqdm import tqdm
 from p_tqdm import p_uimap
-import itertools
 
 from abstract.eval.bertscore import BertScoreWrapper
 from abstract.eval.bartscore import LikelihoodWrapper
@@ -19,9 +18,6 @@ from abstract.eval.fact_checker import FactChecker
 from abstract.preprocess.preprocess import data_loader
 from abstract.corruptions.entity.bern_entities import clean_uuid
 
-
-import torch.multiprocessing as mp
-# mp.set_start_method('spawn', force=True)
 
 METRICS = ['rouge', 'extractive_fragments', 'bert_score', 'bart_score', 'fact_score']
 METRIC_COLS = list(sorted([
