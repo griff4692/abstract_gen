@@ -698,7 +698,7 @@ class DataCollatorForContrastSeq2Seq:
                     print('Missing likelihood!  Setting to all 0s...')
                     likelihoods = [0 for _ in range(len(non_ref))]
 
-            densities = [x['densities'] for x in non_ref]
+            densities = [x['density'] for x in non_ref]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative) - 1
             keep_summaries = [reference[0]['prediction']] + self.subsample(
@@ -715,7 +715,7 @@ class DataCollatorForContrastSeq2Seq:
                     likelihoods = [0 for _ in range(len(non_ref))]
             n = len(summaries)
             keep_n = min(n, self.max_num_negative)
-            densities = [x['densities'] for x in non_ref]
+            densities = [x['density'] for x in non_ref]
             keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods, densities=densities)
         else:
             summaries = [x['prediction'] for x in cset_filt]
@@ -728,7 +728,7 @@ class DataCollatorForContrastSeq2Seq:
                     likelihoods = [0 for _ in range(len(cset_filt))]
             n = len(summaries)
             keep_n = min(n, self.max_num_positive)
-            densities = [x['densities'] for x in cset_filt]
+            densities = [x['density'] for x in cset_filt]
             keep_summaries = self.subsample(summaries, keep_n, strategy, likelihoods=likelihoods, densities=densities)
         last = keep_summaries[-1]
         for _ in range(self.max_num_positive - len(keep_summaries)):
@@ -751,7 +751,7 @@ class DataCollatorForContrastSeq2Seq:
             if 'likelihood' in strategy:
                 print('Missing likelihood!  Setting to all 0s...')
                 likelihoods = [0 for _ in range(len(cset_ordered))]
-        densities = [x['densities'] for x in cset_ordered]
+        densities = [x['density'] for x in cset_ordered]
         summaries = [x['prediction'] for x in cset_ordered]
         n = len(summaries)
         keep_n = min(n, self.max_num_negative)
