@@ -3,7 +3,7 @@ STRAT=$2
 EXP=$3
 free_mem=$(nvidia-smi --query-gpu=memory.free --format=csv -i $GPU | grep -Eo [0-9]+)
 
-while [ $free_mem -lt 10000 ]; do
+while [ $free_mem -lt 35000 ]; do
     free_mem=$(nvidia-smi --query-gpu=memory.free --format=csv -i $GPU | grep -Eo [0-9]+)
     echo $free_mem
     sleep 5
