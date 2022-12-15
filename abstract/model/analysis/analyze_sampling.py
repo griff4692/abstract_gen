@@ -11,6 +11,7 @@ from collections import Counter
 from abstract.eval.diversity import diversity_score
 from p_tqdm import p_uimap
 from scipy.stats import spearmanr
+from transformers import AutoTokenizer
 
 from transformers import DataCollatorForContrastSeq2Seq
 
@@ -27,9 +28,10 @@ def record(args, fn):
     stats_by_method = defaultdict(lambda: defaultdict(list))
     with open(fn, 'r') as fd:
         cset = ujson.load(fd)
-        cset_filt = []
         seen = set()
-        for cs in cset:
+        cset_filt = [x for x in cset if x['method'] == 'reference']
+        non_ref = [x for x in cset if x['method'] != 'reference']
+        for cs in non_ref:
             cs['prediction'] = cs['prediction'].strip()
             if cs['prediction'] in seen:
                 continue
@@ -95,7 +97,12 @@ def record(args, fn):
                 stats_by_method[strategy]['faithful'].append(avg_faithful)
                 stats_by_method[strategy]['metric_gap'].append(avg_gap)
             else:
-                subset = collator.select_hard_set(cset_filt)
+                try:
+                    subset = collator.select_hard_set(cset_filt)
+                except Exception as e:
+                    print(f'Caught exception {e}')
+                    print('Skipping...')
+                    continue
 
                 pos_obj = [x for x in cset_filt if x['prediction'] in subset[:2]]
                 neg_obj = [x for x in cset_filt if x['prediction'] in subset[2:]]
@@ -137,6 +144,13 @@ def record(args, fn):
                     elif 'primera_bartscore' in x:
                         pos_likelihoods.append(x['primera_bartscore'])
 
+                pos_turing = float(np.mean([x['turing_score'] for x in pos_obj]))
+                neg_turing = float(np.mean([x['turing_score'] for x in neg_obj]))
+
+                stats_by_method[strategy]['turing_positive'].append(pos_turing)
+                stats_by_method[strategy]['turing_negative'].append(neg_turing)
+                stats_by_method[strategy]['turing_gap'].append(pos_turing - neg_turing)
+
                 neg_likelihoods = []
                 for x in neg_obj:
                     if 'primera_bertscore' in x:
@@ -170,16 +184,14 @@ def record(args, fn):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to analyze different sampling strategies for calibration')
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
-    parser.add_argument('--dataset', default='pubmed')
-    parser.add_argument('--metric', default='relevance')
+    parser.add_argument('--dataset', default='clinical')
+    parser.add_argument('--metric', default='faithful')
     parser.add_argument('--max_num_rank', default=4, type=int)
-    parser.add_argument('--max_examples', default=100000, type=int)
+    parser.add_argument('--max_examples', default=10000, type=int)
     parser.add_argument('-debug', default=False, action='store_true')
+    parser.add_argument('--split', default='validation')
 
     args = parser.parse_args()
-    args.debug = True
-
-    from transformers import AutoTokenizer
     dummy = AutoTokenizer.from_pretrained('sshleifer/bart-tiny-random')
 
     metric_norm_fn = os.path.join(args.data_dir, f'{args.dataset}_metric_bounds.json')
@@ -191,7 +203,7 @@ if __name__ == '__main__':
     if args.metric == 'faithful':
         strategies = [
             'random', 'max_margin', 'min_margin', 'avg_margin', 'max_diversity', 'min_diversity',
-            'easy', 'hard',
+            'easy', 'hard', 'max_extractive_gap'  # Cross diversity?
         ]
         default_metrics = faith_metrics.copy()
     elif args.metric == 'relevance':
@@ -202,7 +214,7 @@ if __name__ == '__main__':
         ]
         default_metrics = relevance_metrics.copy()
     else:
-        raise Exception('Unrecognized metric')
+        raise Exception(f'Unrecognized metric: {args.metric}')
 
     def score_candidate_fn(row, contrast_metrics=default_metrics):
         norm_vals = []
@@ -225,7 +237,7 @@ if __name__ == '__main__':
         use_mixed_methods=args.metric == 'relevance'
     )
 
-    pattern = os.path.join(args.data_dir, args.dataset, 'corruptions', 'train', '*.json')
+    pattern = os.path.join(args.data_dir, args.dataset, 'corruptions', args.split, '*.json')
     print(f'Looking for files matching {pattern}')
     fns = list(glob(pattern))
 
@@ -274,13 +286,13 @@ if __name__ == '__main__':
 
     n = len(fns)
     if n > args.max_examples:
+        np.random.seed(1992)
         fns = list(np.random.choice(fns, size=(args.max_examples, ), replace=False))
     all_stats_by_method = defaultdict(lambda: defaultdict(list))
     if args.debug:
         single_stats_by_method = list(tqdm(map(lambda fn: record(args, fn), fns), total=len(fns)))
     else:
-        single_stats_by_method = list(p_uimap(lambda fn: record(args, fn), fns))
-
+        single_stats_by_method = list(p_uimap(lambda fn: record(args, fn), fns, num_cpus=16))
 
     for stats_by_method in single_stats_by_method:
         for strategy, obj in stats_by_method.items():
