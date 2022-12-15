@@ -224,5 +224,8 @@ if __name__ == '__main__':
     if 'faith' in args.experiment and args.dataset == 'pubmed':
         args.max_length = min(args.max_length, 384)
         print('Ensuring maximum length is 384 for Pubmed')
+    elif 'faith' in args.experiment and args.dataset == 'chemistry':
+        args.max_length = min(args.max_length, 512)
+        print('Ensuring maximum length is 512 for Pubmed')
 
     main(args)
