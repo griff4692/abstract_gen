@@ -9,7 +9,8 @@ METRIC=$4
 DIR="${HOME}/data_tmp/weights/$EXPERIMENT"
 BEST_STEP_FN="${DIR}/the_chosen_one.txt"
 INFERENCE_BATCH_SIZE=8
-MAX_EXAMPLES=99999999
+MAX_VAL_EXAMPLES=256
+MAX_TEST_EXAMPLES=999999999
 
 if [ ! -f $BEST_STEP_FN ]
 then
@@ -25,12 +26,7 @@ then
       continue
     fi
 
-#    OUT_MODEL_FN="${STEP_DIR}/pytorch_model.bin"
-#    if [ ! -f $OUT_MODEL_FN ]
-#    then
-#      python zero_to_fp32.py $STEP_DIR $OUT_MODEL_FN
-#    fi
-    python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $INFERENCE_BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_EXAMPLES --split $SPLIT
+    python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $INFERENCE_BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_VAL_EXAMPLES --split $SPLIT
     cd ../eval
     OUT_FN="${STEP_DIR}/${SPLIT}_predictions.csv"
     CUDA_VISIBLE_DEVICES=$DEVICE bash run_all.sh $DATASET $OUT_FN $METRIC
@@ -45,22 +41,14 @@ then
   cd ../model
 fi
 
-while read BEST_STEP; do
-  echo "${BEST_STEP} is the best step on the validation set."
-  export CHOSEN_STEP=$BEST_STEP
-done < $BEST_STEP_FN
+CHOSEN_STEP=$(head -n 1 $BEST_STEP_FN |  grep -oE "[^=]+$")
+echo "${CHOSEN_STEP} is the best step on the validation set."
 
 CKPT_NAME="ckpt_${CHOSEN_STEP}_steps"
 STEP_DIR="${DIR}/${CKPT_NAME}"
-#OUT_MODEL_FN="${STEP_DIR}/pytorch_model.bin"
-#if [ ! -f $OUT_MODEL_FN ]
-#then
-#  python zero_to_fp32.py $STEP_DIR $OUT_MODEL_FN
-#fi
-
 SPLIT="test"
 
-python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $INFERENCE_BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_EXAMPLES --split $SPLIT
+python inference.py --hf_model primera --device $DEVICE --experiment $EXPERIMENT --dataset $DATASET --batch_size $INFERENCE_BATCH_SIZE --ckpt_name $CKPT_NAME --results_name $CKPT_NAME --max_examples $MAX_TEST_EXAMPLES --split $SPLIT
 cd ../eval
 OUT_FN="${STEP_DIR}/${SPLIT}_predictions.csv"
 
