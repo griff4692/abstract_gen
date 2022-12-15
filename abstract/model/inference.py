@@ -222,7 +222,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if 'faith' in args.experiment and args.dataset == 'pubmed':
-        args.max_length = min(args.max_length, 256)
-        print('Ensuring maximum length is 256 for Pubmed')
+        args.max_length = min(args.max_length, 384)
+        print('Ensuring maximum length is 384 for Pubmed')
 
     main(args)
