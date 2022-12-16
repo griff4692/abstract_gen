@@ -839,6 +839,27 @@ class DataCollatorForContrastSeq2Seq:
 
         return [cset_ordered[idx]['prediction'] for idx in keep_idxs]
 
+    def most_faithful(self, cset, target_n):
+        faith_scores = [x['fact_score'] for x in cset]
+        n = len(cset)
+        keep_n = min(n, target_n)
+        cand_idxs = list(itertools.combinations(np.arange(n), target_n))
+        from scipy.stats import spearmanr
+        np.random.shuffle(cand_idxs)
+        cand_idxs_trunc = cand_idxs[:min(len(cand_idxs), 1000)]
+        calibs = []
+        for cand_idx in cand_idxs_trunc:
+            fs = [faith_scores[i] for i in cand_idx]
+            rel_rank = list(range(len(cand_idx)))
+            try:
+                corel = spearmanr(rel_rank, fs)[0]
+            except:
+                corel = 0
+            calibs.append(corel)
+        best_idx = int(np.argmin(calibs))
+        keep_idxs = cand_idxs_trunc[best_idx]
+        return [cset[idx]['prediction'] for idx in keep_idxs]
+
     def select_mixed_methods(self, cset, target_n):
         cset_filt = [
             x for x in cset if self.method_match(x['method'], self.mixed_methods) and x['sign'] == 'mixed'
@@ -847,6 +868,8 @@ class DataCollatorForContrastSeq2Seq:
         if 'surprise' in self.contrast_sample_strategy:
             return self.surprise_me(cset, target_n)
         cset_ordered = self.order(cset_filt)
+        if self.contrast_sample_strategy == 'max_faithful':
+            return self.most_faithful(cset_ordered, target_n)
         n = len(cset_ordered)
         keep_n = min(n, target_n)
 
