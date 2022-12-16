@@ -234,7 +234,7 @@ def run_single_metric(records, bartscore_hf_model, bartscore_path, uuid2data, me
 if __name__ == '__main__':
     parser = argparse.ArgumentParser('Arguments to Evaluate Abstracts (real and synthetic corruptions)')
     parser.add_argument('--data_dir', default=os.path.expanduser('~/data_tmp'))
-    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--dataset')
     parser.add_argument('--fp', default='weights/primera_final/results/predictions.csv')
     parser.add_argument('--mode', default='evaluate', choices=['evaluate', 'merge_chunks', 'merge_metrics', 'to_table'])
     parser.add_argument('-erase_after_merge', default=False, action='store_true')
@@ -242,6 +242,16 @@ if __name__ == '__main__':
     parser.add_argument('-overwrite', default=False, action='store_true')
 
     args = parser.parse_args()
+
+    if args.dataset is None:
+        if 'pubmed' in args.fp:
+            args.dataset = 'pubmed'
+        elif 'chem' in args.fp:
+            args.dataset = 'chemistry'
+        elif 'clin' in args.fp:
+            args.dataset = 'clinical'
+        else:
+            raise Exception(f'Could not infer dataset from {args.fn}. Please set explicitly with --dataset flag.')
 
     if args.dataset in {'chemistry', 'pubmed'}:
         bartscore_path = None
