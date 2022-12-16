@@ -356,7 +356,7 @@ def parse_args():
     parser.add_argument(
         "--per_device_eval_batch_size",
         type=int,
-        default=8,
+        default=4,
         help="Batch size (per device) for the evaluation dataloader.",
     )
     parser.add_argument(
