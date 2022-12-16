@@ -212,7 +212,7 @@ if __name__ == '__main__':
     parser.add_argument('--max_examples', default=10000, type=int)
     parser.add_argument('--batch_size', default=32, type=int)
     parser.add_argument('--device', default=0, type=int)
-    parser.add_argument('--dataset', default='pubmed', choices=['pubmed', 'clinical', 'chemistry'])
+    parser.add_argument('--dataset')
     parser.add_argument('-overwrite', default=False, action='store_true')
     parser.add_argument('-contrast_classifier', default=False, action='store_true')
     parser.add_argument('--split', default='test')
@@ -220,6 +220,16 @@ if __name__ == '__main__':
     parser.add_argument('--length_penalty', default=1.0, type=float)
 
     args = parser.parse_args()
+
+    if args.dataset is None:
+        if 'pubmed' in args.experiment:
+            args.dataset = 'pubmed'
+        elif 'chem' in args.experiment:
+            args.dataset = 'chemistry'
+        elif 'clin' in args.experiment:
+            args.dataset = 'clinical'
+        else:
+            raise Exception(f'Could not infer dataset from {args.fn}. Please set explicitly with --dataset flag.')
 
     if 'faith' in args.experiment and args.dataset == 'pubmed':
         args.max_length = min(args.max_length, 384)
