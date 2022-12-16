@@ -106,6 +106,8 @@ if __name__ == '__main__':
     uuid2data = {}
     for record in data['train']:
         uuid2data[record['uuid']] = record
+    for record in data['validation']:
+        uuid2data[record['uuid']] = record
 
     for fn in tqdm(fns):
         with open(fn, 'r') as fd:
