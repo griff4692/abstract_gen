@@ -339,7 +339,7 @@ if __name__ == '__main__':
                 print(f'Erasing {fn}')
                 os.remove(fn)
         
-        df_to_table(merged)
+        df_to_table(args, merged)
         exit(0)
 
     data = data_loader(args.dataset, contrast_subsample=False)
