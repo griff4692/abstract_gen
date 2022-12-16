@@ -27,7 +27,7 @@ METRIC_COLS = list(sorted([
 ]))
 
 
-def df_to_table(df):
+def df_to_table(args, df):
     print('Paste into Excel and ensure columns line up')
     print(','.join(METRIC_COLS))
     output_str = []
@@ -38,6 +38,27 @@ def df_to_table(df):
             val = str(round(df[col].dropna().mean(), 4))
         output_str.append(val)
     print(','.join(output_str))
+
+    import ujson
+    metric_norm_fn = os.path.join(args.data_dir, f'{args.dataset}_metric_bounds.json')
+    with open(metric_norm_fn, 'r') as fd:
+        stats = ujson.load(fd)
+
+    faith_metrics = ['bs_src_precision', 'fact_score', 'bart_score']
+    relevance_metrics = ['bs_ref_f1', 'rouge1', 'rouge2']
+
+    agg_rel_scores = []
+    agg_faith_scores = []
+    for record in df.to_dict('records'):
+        rel_row = float(np.mean([(record[c] - stats[c]['mean']) / stats[c]['std'] for c in relevance_metrics]))
+        faith_row = float(np.mean([(record[c] - stats[c]['mean']) / stats[c]['std'] for c in faith_metrics]))
+        agg_faith_scores.append(faith_row)
+        agg_rel_scores.append(rel_row)
+
+    agg_rel = float(np.mean(agg_rel_scores))
+    agg_faith = float(np.mean(agg_faith_scores))
+    print(f'Relevance Agg: {round(agg_rel, 3)}')
+    print(f'Faith Agg: {round(agg_faith, 3)}')
 
 
 def source_sent_alignment(candidates, comparison):
@@ -236,7 +257,7 @@ if __name__ == '__main__':
         if 'with_metrics' not in prediction_fn:
             prediction_fn = prediction_fn.replace('.csv', '') + f'_with_metrics.csv'
         df = pd.read_csv(prediction_fn)
-        df_to_table(df)
+        df_to_table(args, df)
         exit(0)
 
     full_fn = prediction_fn.replace('.csv', '') + f'_with_metrics.csv'
