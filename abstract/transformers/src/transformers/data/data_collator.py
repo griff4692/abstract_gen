@@ -839,7 +839,7 @@ class DataCollatorForContrastSeq2Seq:
 
         return [cset_ordered[idx]['prediction'] for idx in keep_idxs]
 
-    def most_faithful(self, cset, target_n):
+    def most_faithful(self, cset, ref_set, target_n):
         faith_scores = [x['fact_score'] for x in cset]
         n = len(cset)
         keep_n = min(n, target_n)
@@ -863,6 +863,8 @@ class DataCollatorForContrastSeq2Seq:
             best_idx = int(np.argmin(calibs))
             keep_idxs = cand_idxs_trunc[best_idx]
             preds = [cset[idx]['prediction'] for idx in keep_idxs]
+        if len(preds) == 0:
+            preds = ref_set
         last = preds[-1]
         for _ in range(target_n - len(preds)):
             preds.append(last)
@@ -877,7 +879,8 @@ class DataCollatorForContrastSeq2Seq:
             return self.surprise_me(cset, target_n)
         cset_ordered = self.order(cset_filt)
         if self.contrast_sample_strategy == 'max_faithful':
-            return self.most_faithful(cset_ordered, target_n)
+            ref_cset = [x['prediction'] for x in cset if x['method'] == 'reference']
+            return self.most_faithful(cset_ordered, ref_cset, target_n)
         n = len(cset_ordered)
         keep_n = min(n, target_n)
 
