@@ -843,7 +843,14 @@ class DataCollatorForContrastSeq2Seq:
         faith_scores = [x['fact_score'] for x in cset]
         n = len(cset)
         keep_n = min(n, target_n)
-        cand_idxs = list(itertools.combinations(np.arange(n), target_n))
+        cand_idxs = list(itertools.combinations(np.arange(n), keep_n))
+        if len(cand_idxs) == 0:
+            print('Not enough predictions')
+            preds = [x['prediction'] for x in cset]
+            last = preds[-1]
+            for _ in range(target_n - len(preds)):
+                preds.append(last)
+            return preds
         from scipy.stats import spearmanr
         np.random.shuffle(cand_idxs)
         cand_idxs_trunc = cand_idxs[:min(len(cand_idxs), 1000)]
