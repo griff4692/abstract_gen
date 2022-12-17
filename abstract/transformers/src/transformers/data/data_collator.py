@@ -847,25 +847,26 @@ class DataCollatorForContrastSeq2Seq:
         if len(cand_idxs) == 0:
             print('Not enough predictions')
             preds = [x['prediction'] for x in cset]
-            last = preds[-1]
-            for _ in range(target_n - len(preds)):
-                preds.append(last)
-            return preds
-        from scipy.stats import spearmanr
-        np.random.shuffle(cand_idxs)
-        cand_idxs_trunc = cand_idxs[:min(len(cand_idxs), 1000)]
-        calibs = []
-        for cand_idx in cand_idxs_trunc:
-            fs = [faith_scores[i] for i in cand_idx]
-            rel_rank = list(range(len(cand_idx)))
-            try:
-                corel = spearmanr(rel_rank, fs)[0]
-            except:
-                corel = 0
-            calibs.append(corel)
-        best_idx = int(np.argmin(calibs))
-        keep_idxs = cand_idxs_trunc[best_idx]
-        return [cset[idx]['prediction'] for idx in keep_idxs]
+        else:
+            from scipy.stats import spearmanr
+            np.random.shuffle(cand_idxs)
+            cand_idxs_trunc = cand_idxs[:min(len(cand_idxs), 1000)]
+            calibs = []
+            for cand_idx in cand_idxs_trunc:
+                fs = [faith_scores[i] for i in cand_idx]
+                rel_rank = list(range(len(cand_idx)))
+                try:
+                    corel = spearmanr(rel_rank, fs)[0]
+                except:
+                    corel = 0
+                calibs.append(corel)
+            best_idx = int(np.argmin(calibs))
+            keep_idxs = cand_idxs_trunc[best_idx]
+            preds = [cset[idx]['prediction'] for idx in keep_idxs]
+        last = preds[-1]
+        for _ in range(target_n - len(preds)):
+            preds.append(last)
+        return preds
 
     def select_mixed_methods(self, cset, target_n):
         cset_filt = [
