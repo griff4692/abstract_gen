@@ -1,1 +1,0 @@
-wget -i ~/data_tmp/abstract/dg/search_urls.txt --directory-prefix ~/data_tmp/abstract/dg/search_results

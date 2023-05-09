@@ -1,1 +1,0 @@
-wget --wait=3 -i /data_tmp/abstract/cell/search_urls.txt --directory-prefix /data_tmp/abstract/cell/search_results

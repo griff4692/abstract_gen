@@ -1,1 +1,0 @@
-wget -i /data_tmp/abstract/nature_coms/search_urls.txt --directory-prefix /data_tmp/abstract/nature_coms/pdf
