@@ -80,6 +80,11 @@ def record(args, fn):
                     score_candidate_fn(x, relevance_metrics) for x in subset_obj
                 ]))
                 rels = [score_candidate_fn(x, relevance_metrics) for x in subset_obj]
+                faiths = [score_candidate_fn(x, faith_metrics) for x in subset_obj]
+
+                faith_rel_corel = spearmanr(rels, faiths)[0]
+                stats_by_method[strategy]['faith_relevance_pearson_corel'].append(faith_rel_corel)
+
                 rels = np.sort(rels)
                 gaps = []
                 for i in range(1, len(rels)):
@@ -117,6 +122,22 @@ def record(args, fn):
                 pos_lens = list(map(len, pos_toks))
                 neg_lens = list(map(len, neg_toks))
 
+                pos_rels = [score_candidate_fn(x, relevance_metrics) for x in pos_obj]
+                neg_rels = [score_candidate_fn(x, relevance_metrics) for x in neg_obj]
+
+                pos_faiths = [score_candidate_fn(x, faith_metrics) for x in pos_obj]
+                neg_faiths = [score_candidate_fn(x, faith_metrics) for x in neg_obj]
+
+                faith_gap = np.mean(pos_faiths) - np.mean(neg_faiths)
+                rel_gap = np.mean(pos_rels) - np.mean(neg_rels)
+                stats_by_method[strategy]['faithful_gap'].append(faith_gap)
+                stats_by_method[strategy]['relevance_gap'].append(rel_gap)
+
+                stats_by_method[strategy]['relevance_pos'].append(float(np.mean(pos_rels)))
+                stats_by_method[strategy]['faithful_pos'].append(float(np.mean(pos_faiths)))
+                stats_by_method[strategy]['relevance_neg'].append(float(np.mean(neg_rels)))
+                stats_by_method[strategy]['faithful_neg'].append(float(np.mean(neg_faiths)))
+
                 avg_pos_len = np.mean(pos_lens)
                 avg_neg_len = np.mean(neg_lens)
                 stats_by_method[strategy]['lengths_positive'].append(avg_pos_len)
@@ -127,6 +148,8 @@ def record(args, fn):
                 stats_by_method[strategy]['diversity_negative'].append(pos_div)
                 stats_by_method[strategy]['diversity_cross'].append(cross_diversity(pos_abs, neg_abs))
                 neg_methods = Counter([x['method'] for x in neg_obj])
+                max_method_frac = neg_methods.most_common(1)[0][1] / len(neg_obj)
+                stats_by_method[strategy]['max_neg_fraction'].append(max_method_frac)
                 uses_reference = 0
                 for x in pos_obj:
                     if x['method'] == 'reference':
@@ -187,9 +210,11 @@ if __name__ == '__main__':
     parser.add_argument('--dataset', default='clinical')
     parser.add_argument('--metric', default='faithful')
     parser.add_argument('--max_num_rank', default=4, type=int)
-    parser.add_argument('--max_examples', default=10000, type=int)
+    parser.add_argument('--max_num_negative', default=2, type=int)
+    parser.add_argument('--max_num_positive', default=2, type=int)
+    parser.add_argument('--max_examples', default=1000, type=int)
     parser.add_argument('-debug', default=False, action='store_true')
-    parser.add_argument('--split', default='validation')
+    parser.add_argument('--split', default='train')
 
     args = parser.parse_args()
     dummy = AutoTokenizer.from_pretrained('sshleifer/bart-tiny-random')
@@ -203,14 +228,14 @@ if __name__ == '__main__':
     if args.metric == 'faithful':
         strategies = [
             'random', 'max_margin', 'min_margin', 'avg_margin', 'max_diversity', 'min_diversity',
-            'easy', 'hard', 'max_extractive_gap'  # Cross diversity?
+            'easy', 'hard', 'max_extractive_gap'
         ]
         default_metrics = faith_metrics.copy()
     elif args.metric == 'relevance':
         strategies = [
-            'random', 'max_margin', 'min_margin', 'max_diversity', 'min_diversity', 'top_beam', 'bottom_beam',
-            'wide_beam', 'min_metric', 'max_metric', 'max_gap', 'min_gap',
-            'max_surprise', 'min_surprise',
+            'random', 'max_margin', 'min_margin', 'min_metric', 'max_metric', 'max_gap', 'min_gap',
+            'max_diversity', 'min_diversity', 'top_beam', 'bottom_beam',
+            'wide_beam', 'max_length', 'min_length', 'max_faithful'
         ]
         default_metrics = relevance_metrics.copy()
     else:
@@ -226,8 +251,8 @@ if __name__ == '__main__':
     collator = DataCollatorForContrastSeq2Seq(
         tokenizer=dummy,
         max_num_rank=args.max_num_rank,
-        max_num_positive=2,
-        max_num_negative=2,
+        max_num_positive=args.max_num_positive,
+        max_num_negative=args.max_num_negative,
         score_candidate_fn=score_candidate_fn,
         metric_mode='max',
         positive_methods='all',
@@ -308,5 +333,7 @@ if __name__ == '__main__':
         out_df.append(strat_row)
     out_df = pd.DataFrame(out_df)
     out_fn = os.path.join(args.data_dir, f'{args.dataset}_{args.metric}_strategy_covariates.csv')
+    out_df = out_df.reindex(sorted(out_df.columns), axis=1)
+    out_df.reset_index(drop=True, inplace=True)
     print(f'Saving to {out_fn}...')
     out_df.to_csv(out_fn, index=False)
